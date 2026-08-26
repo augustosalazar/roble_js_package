@@ -95,6 +95,9 @@ export class RoblePartialInsertException extends RobleApiException {
 // ============================
 export type RobleApiHeaders = Record<string, string>;
 
+/** Servicio al que va la peticion; decide el prefijo de la ruta. */
+type RobleService = 'auth' | 'database' | 'realtime';
+
 /** Registro que el servidor rechazó durante un `POST /insert`. */
 export interface RobleSkippedRecord {
   /** Posición del registro en la lista enviada. */
@@ -161,6 +164,34 @@ export interface RobleUser {
   createdAt: string;
   updatedAt: string;
   [key: string]: any;
+}
+
+/** Un proveedor de login social configurado en el proyecto. */
+export interface RobleProviderInfo {
+  /** Identificador estable: `google`, `microsoft`, `github`… */
+  name: string;
+
+  /** Nombre para mostrar en el boton. */
+  displayName: string;
+
+  /**
+   * `true` si el proveedor certifica que el correo esta verificado.
+   *
+   * Cuando es `false`, entrar con ese proveedor usando un correo que ya tiene
+   * cuenta responde `409` en vez de vincularse solo. Conviene avisarlo en la
+   * interfaz antes, no despues.
+   */
+  autoLinkSupported: boolean;
+
+  /**
+   * Client ID con el que el proyecto tiene configurado al proveedor.
+   *
+   * Es lo que un SDK nativo necesita como `serverClientId`: el token que pida
+   * se emite para esta audiencia, y es la que Roble comprueba al validarlo.
+   * Tomarlo de aqui evita llevar una segunda copia en la app, que se
+   * desincroniza y falla con un `401` que parece un problema del token.
+   */
+  clientId: string | null;
 }
 
 export interface RobleApiConfig {
@@ -251,6 +282,7 @@ export class RobleApiClient {
 
   readonly #storage?: RobleStorage;
   readonly #storageKey: string;
+
 
   constructor(config: RobleApiConfig) {
     validateConfig(config);
@@ -410,7 +442,19 @@ export class RobleApiClient {
   // ============================
   //  Helpers internos
   // ============================
-  private buildPath(kind: 'auth' | 'database', endpoint: string) {
+  private buildPath(kind: RobleService, endpoint: string) {
+    if (kind === 'realtime') {
+      // El arbol JSON cuelga de /realtime en el mismo host que la API. No hay
+      // `realtimeBaseUrl`: la 3.1.0 lo retiro junto con el socket, y esto no
+      // lo necesita para volver.
+      //
+      // Sin barra final cuando no hay endpoint: la ruta que lista colecciones
+      // apunta a la raiz del proyecto, y no toda ruta la tolera.
+      return endpoint
+        ? `/realtime/${this.contractId}/${endpoint}`
+        : `/realtime/${this.contractId}`;
+    }
+
     return kind === 'auth'
       ? `/auth/${this.contractId}/${endpoint}`
       : `/database/${this.contractId}/${endpoint}`;
@@ -458,7 +502,7 @@ export class RobleApiClient {
   }
 
   private async _makeRequest<T = any>(
-    kind: 'auth' | 'database',
+    kind: RobleService,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     endpoint: string,
     {
@@ -938,6 +982,165 @@ export class RobleApiClient {
   }
 
   /**
+   * Ejecuta una consulta guardada por su **nombre** en vez de por su UUID.
+   *
+   * Hace lo mismo que `executeQuery`, pero el nombre se lee en la consola y
+   * sobrevive a recrear la consulta, mientras que el UUID cambia.
+   *
+   * ```ts
+   * const res = await db.executeQueryByName('productosSinInventario');
+   * for (const fila of res.rows) console.log(fila);
+   * ```
+   *
+   * @throws Error si `name` esta vacio.
+   * @throws RobleApiHttpException con 404 si el servidor no la encuentra.
+   */
+  async executeQueryByName(
+    name: string,
+    params?: any[]
+  ): Promise<RobleQueryResult> {
+    const limpio = name?.trim() ?? '';
+    if (!limpio) {
+      throw new Error(
+        'name no puede estar vacio. Es el nombre que le diste a la consulta ' +
+          'en la consola de Roble'
+      );
+    }
+
+    const res = await this._makeRequest<any>(
+      'database',
+      'POST',
+      `saved-queries/by-name/${encodeURIComponent(limpio)}/execute`,
+      { body: params ? { params } : {} }
+    );
+
+    if (!res || typeof res !== 'object') {
+      throw new RobleApiFormatException(
+        'Respuesta inesperada al ejecutar la consulta'
+      );
+    }
+
+    return {
+      success: res.success === true,
+      command: res.command ?? null,
+      rowCount: Number(res.rowCount ?? 0),
+      rows: Array.isArray(res.rows) ? res.rows : [],
+      fields: Array.isArray(res.fields) ? res.fields : [],
+    };
+  }
+
+  /**
+   * Proveedores de login social configurados en el proyecto.
+   *
+   * Sirve para pintar solo los botones que van a funcionar, en vez de
+   * fijarlos en el codigo y descubrir el fallo al pulsarlos.
+   */
+  async listProviders(): Promise<RobleProviderInfo[]> {
+    const res = await this._makeRequest<any>('auth', 'GET', 'auth/providers', {
+      isAuthRequest: true,
+      skipAuth: true,
+    });
+
+    if (!Array.isArray(res)) return [];
+
+    return res
+      .filter((p) => p && typeof p === 'object')
+      .map((p) => ({
+        name: String(p.name ?? ''),
+        displayName: String(p.displayName ?? p.name ?? ''),
+        autoLinkSupported: p.autoLinkSupported === true,
+        clientId:
+          typeof p.clientId === 'string' && p.clientId ? p.clientId : null,
+      }));
+  }
+
+  /**
+   * Client ID que el proyecto tiene configurado para `provider`, o `null` si
+   * ese proveedor no esta configurado.
+   *
+   * Evita que la app lleve una segunda copia del valor: la consola es el unico
+   * sitio donde se define.
+   */
+  async providerClientId(provider: string): Promise<string | null> {
+    const encontrado = (await this.listProviders()).find(
+      (p) => p.name === provider
+    );
+    return encontrado?.clientId ?? null;
+  }
+
+  /**
+   * Inicia sesion con un `id_token` que ya obtuvo un SDK nativo.
+   *
+   * No abre ninguna ventana: el token lo consigue el SDK del proveedor —Google
+   * Identity Services en el navegador, o el modulo nativo en React Native— y
+   * aqui solo se canjea.
+   *
+   * `nonce` tiene que ser el mismo valor que se le paso al proveedor: viaja
+   * dentro del token y el servidor comprueba que coincidan, que es lo que
+   * impide reutilizar un token capturado.
+   */
+  async signInWithIdToken(params: {
+    provider: string;
+    idToken: string;
+    nonce?: string;
+    persistSession?: boolean;
+  }): Promise<RobleUser> {
+    if (!params.idToken) {
+      throw new Error('idToken no puede estar vacio');
+    }
+
+    const persistSession = params.persistSession ?? true;
+
+    const data = await this._makeRequest<any>('auth', 'POST', 'auth/id-token', {
+      isAuthRequest: true,
+      skipAuth: true,
+      body: {
+        provider: params.provider,
+        token: params.idToken,
+        ...(params.nonce ? { nonce: params.nonce } : {}),
+      },
+    });
+
+    this.#persistTokens = persistSession;
+    if (!persistSession) await this.#forgetStoredSession();
+
+    if (data?.accessToken) {
+      this.#refreshToken = data.refreshToken ?? null;
+      this.#updateAccessToken(data.accessToken);
+    }
+
+    if (!this.#accessToken) {
+      throw new RobleApiFormatException(
+        'La respuesta no incluyo un access token.'
+      );
+    }
+
+    return this.currentUser();
+  }
+
+  /**
+   * Base de datos JSON del proyecto: un arbol sin esquema, al estilo de
+   * Firebase Realtime Database.
+   *
+   * Es la alternativa a una tabla cuando los datos no la merecen: aqui la
+   * estructura se crea al escribir, y el arbol vive fuera del esquema del
+   * proyecto, asi que no aparece entre sus tablas.
+   *
+   * ```ts
+   * await db.json.push('mensajes', { texto: 'hola' });
+   * const todos = await db.json.read('mensajes');
+   * ```
+   */
+  get json(): RobleJsonDb {
+    return (this.#json ??= new RobleJsonDb(
+      (method, path, opts) =>
+        this._makeRequest('realtime', method, path, opts ?? {})
+    ));
+  }
+
+  #json?: RobleJsonDb;
+
+  /**
    * Devuelve el registro con ese `_id`, o `null` si no existe.
    *
    * ```ts
@@ -952,6 +1155,99 @@ export class RobleApiClient {
     const rows = await this.read(tableName, { _id: id });
     return rows.length ? rows[0]! : null;
   }
+}
+
+// ============================
+//  Base de datos JSON
+// ============================
+
+/** Peticion contra el servicio de tiempo real, ya con el token puesto. */
+type RobleJsonRequest = (
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  path: string,
+  opts?: { body?: any; query?: Record<string, any> }
+) => Promise<any>;
+
+/**
+ * Un arbol JSON por proyecto, al estilo de Firebase Realtime Database.
+ *
+ * La diferencia con una tabla no es de sintaxis, es de modelo. Una tabla hay
+ * que crearla antes, con sus columnas, y vive en el esquema del proyecto. Aqui
+ * **no se declara nada**: la estructura aparece cuando llega el primer dato, y
+ * el arbol vive fuera del esquema, asi que no sale entre las tablas.
+ *
+ * Para un chat, un tablero o una partida —datos que nacen y mueren rapido y
+ * cuya forma no vale la pena declarar— este es el modulo, no una tabla.
+ *
+ * Una ruta es `coleccion/hijo/nieto`. El primer segmento es la coleccion; el
+ * resto navega dentro del JSON.
+ */
+export class RobleJsonDb {
+  readonly #request: RobleJsonRequest;
+
+  constructor(request: RobleJsonRequest) {
+    this.#request = request;
+  }
+
+  /** Nombres de las colecciones que existen en el proyecto. */
+  async collections(): Promise<string[]> {
+    const res = await this.#request('GET', '');
+    return Array.isArray(res) ? res.map(String) : [];
+  }
+
+  /**
+   * Lee lo que haya en `path`. Devuelve `null` si esa rama no existe.
+   *
+   * Con `shallow` no baja el arbol entero: de cada hijo dice si tiene
+   * contenido, no cual. Sirve para listar una coleccion grande sin traersela.
+   */
+  async read(path: string, shallow = false): Promise<any> {
+    return this.#request('GET', encodePath(path), {
+      query: shallow ? { shallow: 'true' } : undefined,
+    });
+  }
+
+  /** Reemplaza `path` por `data`. Lo que hubiera debajo se pierde. */
+  async write(path: string, data: unknown): Promise<any> {
+    return this.#request('PUT', encodePath(path), { body: data });
+  }
+
+  /**
+   * Mezcla `data` con lo que ya hay en `path`: solo toca las claves que
+   * vienen, el resto se queda.
+   */
+  async update(path: string, data: Record<string, any>): Promise<any> {
+    return this.#request('PATCH', encodePath(path), { body: data });
+  }
+
+  /**
+   * Anade un hijo con clave generada por el servidor, y devuelve esa clave.
+   *
+   * Las claves salen ordenadas por tiempo, asi que dos clientes que escriben a
+   * la vez no se pisan y el orden de insercion se conserva sin llevar contador.
+   */
+  async push(path: string, data: unknown): Promise<string> {
+    const res = await this.#request('POST', encodePath(path), { body: data });
+    return String(res?.name ?? '');
+  }
+
+  /** Borra `path` y todo lo que cuelgue de el. */
+  async remove(path: string): Promise<any> {
+    return this.#request('DELETE', encodePath(path));
+  }
+}
+
+/** Los segmentos vacios se descartan: `/a//b/` es `a/b`. */
+function segmentsOf(path: string): string[] {
+  return (path ?? '').split('/').filter((s) => s.length > 0);
+}
+
+/**
+ * Cada segmento va escapado por separado: si no, un nombre con `/` partiria la
+ * ruta y uno con `?` se llevaria por delante el resto de la URL.
+ */
+function encodePath(path: string): string {
+  return segmentsOf(path).map(encodeURIComponent).join('/');
 }
 
 // ============================

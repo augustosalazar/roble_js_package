@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.2.0
+
+Traído del paquete de Flutter, que iba por delante. Todo es HTTP: no entra
+ninguna dependencia nueva.
+
+### Añadido
+
+- **Base de datos JSON (`db.json`).** Un árbol por proyecto, al estilo de
+  Firebase Realtime Database: `collections`, `read` (con `shallow`), `write`,
+  `update`, `push` y `remove`. No hay esquema que declarar —la estructura nace
+  al escribir— y el árbol vive fuera del esquema del proyecto, así que no
+  aparece entre sus tablas. Es lo que corresponde a un chat o una partida.
+- **`executeQueryByName(nombre)`**: ejecuta una consulta guardada por su
+  nombre. El nombre se lee en la consola y sobrevive a recrear la consulta,
+  mientras que el UUID cambia.
+- **`listProviders()`** y **`providerClientId(nombre)`**: los proveedores de
+  login social configurados, para pintar solo los botones que van a funcionar
+  y para que la app no lleve una segunda copia del Client ID.
+- **`signInWithIdToken()`**: canjea un `id_token` que ya obtuvo un SDK nativo
+  —Google Identity Services en el navegador, el módulo nativo en React
+  Native—. No abre ninguna ventana.
+
+### Notas
+
+- `db.json` no trae `watch`: escuchar necesita el socket, que la 3.1.0 retiró
+  a propósito. La parte HTTP del árbol no lo necesita.
+- El árbol JSON cuelga de `/realtime` en el mismo host que la API. No vuelve
+  `realtimeBaseUrl`.
+
 ## 3.1.0
 
 ### Cambios incompatibles
