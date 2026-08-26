@@ -1,4 +1,12 @@
 // src/index.ts
+import {
+  RobleRealtimeSocket,
+  type RobleRealtimeEvent,
+  type RobleSocketFactory,
+  type RobleUnsubscribe,
+  type RobleFilter,
+  type RobleRealtimeOperation,
+} from './realtime';
 import axios, {
   type AxiosInstance,
   type AxiosRequestConfig,
@@ -217,6 +225,12 @@ export interface RobleApiConfig {
 
   /** Timeout en ms (default 30000) */
   timeoutMs?: number;
+
+  /**
+   * Fabrica del socket de tiempo real. Solo para pruebas: por omision se usa
+   * `socket.io-client`.
+   */
+  socketFactory?: RobleSocketFactory;
 }
 
 /**
@@ -283,6 +297,10 @@ export class RobleApiClient {
   readonly #storage?: RobleStorage;
   readonly #storageKey: string;
 
+  /** Origen del host, sin ruta: el socket cuelga de ahi, no del contrato. */
+  readonly #origin: string;
+  readonly #socketFactory?: RobleSocketFactory;
+
 
   constructor(config: RobleApiConfig) {
     validateConfig(config);
@@ -290,6 +308,8 @@ export class RobleApiClient {
     this.contractId = config.contractId;
     this.#storage = config.storage ?? defaultStorage();
     this.#storageKey = `roble.session.${config.contractId}`;
+    this.#origin = config.baseUrl.replace(/\/+$/, '');
+    this.#socketFactory = config.socketFactory;
 
     this.http = axios.create({
       baseURL: config.baseUrl.replace(/\/+$/, ''), // sin / final
@@ -1131,10 +1151,77 @@ export class RobleApiClient {
    * const todos = await db.json.read('mensajes');
    * ```
    */
+  #realtimeSocket?: RobleRealtimeSocket;
+
+  /**
+   * Servicio de tiempo real: estado de la conexion y cierre.
+   *
+   * Para escuchar, `watchTable` o `json.watch`; esto es para saber si hay
+   * socket y para soltarlo al cerrar sesion.
+   */
+  get realtime(): RobleRealtimeSocket {
+    return (this.#realtimeSocket ??= new RobleRealtimeSocket({
+      // El socket cuelga del host: socket.io negocia por `/socket.io` y el
+      // proyecto viaja en el query.
+      origin: this.#origin,
+      dbName: this.contractId,
+      // Se lee en cada conexion, no una vez: reconectar con el token de hace
+      // media hora deja el socket rechazado sin decir por que.
+      token: () => this.#accessToken,
+      ioFactory: this.#socketFactory,
+    }));
+  }
+
+  /**
+   * Escucha los cambios de una tabla SQL.
+   *
+   * Devuelve la funcion que cancela. El stream **no** trae lo que ya hay, solo
+   * lo que cambie a partir de ahora: para pintar la lista completa, lee con
+   * `read` y aplica encima lo que llegue.
+   *
+   * ```ts
+   * const parar = db.watchTable('products', (cambio) => {
+   *   console.log(cambio.operation, cambio.newValue);
+   * });
+   * ```
+   *
+   * `filters` los aplica el servidor antes de mandar nada, asi que filtrar
+   * aqui ahorra el viaje de todo lo que no interesa.
+   */
+  watchTable(
+    table: string,
+    onEvent: (event: RobleRealtimeEvent) => void,
+    opts: {
+      events?: RobleRealtimeOperation[];
+      filters?: RobleFilter[];
+      onError?: (error: unknown) => void;
+    } = {}
+  ): RobleUnsubscribe {
+    return this.realtime.watch({ table, onEvent, ...opts });
+  }
+
+  /** Escucha los cambios de un registro concreto, por su `_id`. */
+  watchRecord(
+    table: string,
+    id: string | number,
+    onEvent: (event: RobleRealtimeEvent) => void,
+    opts: {
+      events?: RobleRealtimeOperation[];
+      onError?: (error: unknown) => void;
+    } = {}
+  ): RobleUnsubscribe {
+    // El filtro lo evalua el servidor: el resto de filas no llegan siquiera.
+    return this.watchTable(table, onEvent, {
+      ...opts,
+      filters: [{ column: '_id', operator: 'eq', value: id }],
+    });
+  }
+
   get json(): RobleJsonDb {
     return (this.#json ??= new RobleJsonDb(
       (method, path, opts) =>
-        this._makeRequest('realtime', method, path, opts ?? {})
+        this._makeRequest('realtime', method, path, opts ?? {}),
+      () => this.realtime
     ));
   }
 
@@ -1156,6 +1243,17 @@ export class RobleApiClient {
     return rows.length ? rows[0]! : null;
   }
 }
+
+export {
+  RobleRealtimeSocket,
+  type RobleRealtimeEvent,
+  type RobleRealtimeOperation,
+  type RobleRealtimeStatus,
+  type RobleUnsubscribe,
+  type RobleFilter,
+  type RobleSocketFactory,
+  type RobleWatchRequest,
+} from './realtime';
 
 // ============================
 //  Base de datos JSON
@@ -1184,9 +1282,54 @@ type RobleJsonRequest = (
  */
 export class RobleJsonDb {
   readonly #request: RobleJsonRequest;
+  readonly #socket: () => RobleRealtimeSocket;
 
-  constructor(request: RobleJsonRequest) {
+  constructor(request: RobleJsonRequest, socket: () => RobleRealtimeSocket) {
     this.#request = request;
+    this.#socket = socket;
+  }
+
+  /**
+   * Escucha los cambios en `path` y en lo que cuelgue de el.
+   *
+   * Devuelve la funcion que cancela. El stream **no** trae lo que ya hay, solo
+   * lo que cambie a partir de ahora.
+   *
+   * El servidor emite por coleccion, asi que escuchar una rama concreta no
+   * ahorra trafico —llega todo lo de la coleccion y se descarta aqui lo que no
+   * cuelgue de `path`—. Solo ahorra trabajo a quien escucha.
+   *
+   * Tambien llega un cambio escrito *por encima* de `path`, porque reemplazar
+   * un padre cambia al hijo aunque nadie lo nombre.
+   *
+   * ```ts
+   * const parar = db.json.watch('mensajes', (cambio) => {
+   *   // En un push, `path` apunta al padre y la clave nueva esta en newValue.
+   *   for (const [id, dato] of Object.entries(cambio.newValue ?? {})) {
+   *     console.log(id, dato);
+   *   }
+   * });
+   * ```
+   */
+  watch(
+    path: string,
+    onEvent: (event: RobleRealtimeEvent) => void,
+    opts: {
+      events?: RobleRealtimeOperation[];
+      onError?: (error: unknown) => void;
+    } = {}
+  ): RobleUnsubscribe {
+    const segments = segmentsOf(path);
+    if (!segments.length) {
+      throw new Error('Falta el nombre de la coleccion');
+    }
+
+    return this.#socket().watch({
+      table: segments[0]!,
+      path: segments.slice(1).join('/'),
+      onEvent,
+      ...opts,
+    });
   }
 
   /** Nombres de las colecciones que existen en el proyecto. */

@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.3.0
+
+### Añadido
+
+- **Vuelve el tiempo real.** Se retiró en la 3.1.0 porque el servicio no estaba
+  listo; ya lo está. Vuelve `socket.io-client` como dependencia.
+- **`db.watchTable(tabla, cb)`** y **`db.watchRecord(tabla, id, cb)`**:
+  cambios de una tabla SQL. Devuelven la función que cancela.
+- **`db.json.watch(ruta, cb)`**: cambios del árbol JSON, incluidos los escritos
+  *por encima* de la rama escuchada —reemplazar un padre cambia al hijo—.
+- **`db.realtime`**: estado de la conexión y cierre.
+
+### Notas
+
+- Los filtros viajan **planos**. Anidados el servidor lee el operador vacío y
+  deja pasar todo, con lo que el filtro parece funcionar sin filtrar nada.
+- Una sola conexión y una sola suscripción por tabla, aunque escuchen varios:
+  el servidor las cuenta contra la cuota del proyecto. Si una escucha nueva
+  necesita más que la vigente —otro evento, o ningún filtro donde había uno—,
+  la suscripción se rehace.
+- El token se lee en cada conexión, no una vez. Reconectar con uno caducado
+  deja el socket rechazado sin decir por qué.
+
 ## 3.2.0
 
 Traído del paquete de Flutter, que iba por delante. Todo es HTTP: no entra
