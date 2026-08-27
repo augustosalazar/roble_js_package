@@ -21,6 +21,7 @@
   "files": [
     "lib/",
     "src/",
+    ".claude/",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
