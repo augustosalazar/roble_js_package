@@ -167,6 +167,12 @@ export interface RobleUser {
   userId: string;
   email: string;
   name: string;
+  /**
+   * Rol asignado en la consola de Roble: `admin`, `user`, el que sea.
+   *
+   * `null` cuando no se le asignó ninguno, que no es un error.
+   */
+  role: string | null;
   /** Campos adicionales enviados al registrarse. `null` si no se usaron. */
   extra: Record<string, any> | null;
   createdAt: string;

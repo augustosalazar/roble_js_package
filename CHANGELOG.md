@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.4.0
+
+### Añadido
+
+- **`RobleUser.role`**: el rol asignado en la consola, o `null` si no tiene.
+  Llega en cualquier forma de entrar. Requiere `auth-service` v1.7.8.
+
+### Documentación
+
+- El README dice ahora **qué devuelve cada método**, con el perfil completo
+  del login escrito, y avisa de que `id` y `userId` no son lo mismo.
+
 ## 3.3.0
 
 ### Añadido

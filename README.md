@@ -62,6 +62,34 @@ if (db.isLoggedIn) console.log('Hay alguien dentro');
 const perfil = await db.currentUser();
 ```
 
+### Qué devuelve el login
+
+`login()`, `signInWithIdToken()` y cualquier otra forma de entrar devuelven
+**el mismo objeto**: el perfil de la persona.
+
+```js
+{
+  id: 'us-3f2a…',            // fila del perfil
+  userId: '9c1e…',           // el usuario. Este es el que referencian tus tablas
+  email: 'ana@correo.com',
+  name: 'Ana García',
+  role: 'admin',             // null si no tiene rol asignado
+  extra: { programa: 'Sistemas' },
+  createdAt: '2026-08-27T12:00:00.000Z',
+  updatedAt: null,
+}
+```
+
+Dos avisos:
+
+- **`id` y `userId` no son lo mismo.** `userId` es el del usuario, el que
+  guardas en tus tablas para saber de quién es cada fila. `id` es el de la
+  fila del perfil.
+- **`role` puede ser `null`**, si nadie le asignó rol. No es un error.
+
+`currentUser()` devuelve exactamente esto mismo, y es lo que usas después de
+`restoreSession()` para saber quién entró.
+
 ### Que la sesión sobreviva a recargar
 
 En el navegador la sesión se guarda sola en `localStorage`. Al arrancar,
@@ -341,23 +369,77 @@ Los números que más vas a ver:
 
 ## Referencia rápida
 
-**Sesión** · `isLoggedIn` · `restoreSession()` · `logout()`
+Todo devuelve una promesa salvo `isLoggedIn`, `watchTable`, `watchRecord` y
+`json.watch`.
 
-**Cuentas** · `register()` · `registerWithVerification()` · `verifyEmail()` ·
-`resendCode()` · `login()` · `currentUser()` · `forgotPassword()` ·
-`resetPassword()` · `deleteAccount()`
+### Sesión
 
-**Login social** · `signInWithIdToken()` · `listProviders()` ·
-`providerClientId()`
+| Método | Devuelve |
+|---|---|
+| `isLoggedIn` | `boolean` — si hay sesión en memoria |
+| `restoreSession()` | `boolean` — `true` si la sesión guardada sigue viva |
+| `logout()` | nada |
 
-**Tablas** · `create()` · `createMany()` · `read()` · `getById()` · `update()` ·
-`delete()` · `publicRead()` · `executeQuery()` · `executeQueryByName()`
+### Cuentas
 
-**Árbol JSON** · `json.collections()` · `json.read()` · `json.write()` ·
-`json.update()` · `json.push()` · `json.remove()` · `json.watch()`
+| Método | Devuelve |
+|---|---|
+| `register()` | el usuario creado, tal como lo mandó el servidor |
+| `registerWithVerification()` | confirmación de que el correo salió |
+| `verifyEmail()` | confirmación |
+| `resendCode()` | confirmación |
+| `login()` | **el perfil** (`RobleUser`, arriba) |
+| `currentUser()` | **el perfil** |
+| `forgotPassword()` | confirmación de que el correo salió |
+| `resetPassword()` | confirmación |
+| `deleteAccount()` | nada |
 
-**Tiempo real** · `watchTable()` · `watchRecord()` · `realtime.status` ·
-`realtime.close()`
+### Login social
+
+| Método | Devuelve |
+|---|---|
+| `signInWithIdToken()` | **el perfil** |
+| `listProviders()` | `RobleProviderInfo[]` — `name`, `displayName`, `clientId`, `autoLinkSupported` |
+| `providerClientId()` | `string \| null` — `null` si ese proveedor no está configurado |
+
+### Tablas
+
+| Método | Devuelve |
+|---|---|
+| `create()` | el registro creado, **con su `_id`** |
+| `createMany()` | `RobleInsertResult` — `inserted` y `skipped` |
+| `read()` | un array — vacío si no hay nada, nunca `null` |
+| `getById()` | el registro, o **`null` si no existe** |
+| `update()` | el registro ya cambiado |
+| `delete()` | confirmación del borrado |
+| `publicRead()` | un array, sin necesidad de sesión |
+| `executeQuery()` | `RobleQueryResult` — `rows`, `rowCount`, `fields` |
+| `executeQueryByName()` | `RobleQueryResult` |
+
+### Árbol JSON
+
+| Método | Devuelve |
+|---|---|
+| `json.collections()` | `string[]` — los nombres |
+| `json.read()` | lo que haya en esa ruta, o `null` si no existe |
+| `json.write()` | la respuesta del servidor (rara vez se usa) |
+| `json.update()` | ídem |
+| `json.push()` | `string` — **la clave que generó el servidor** |
+| `json.remove()` | ídem |
+| `json.watch()` | la función que **cancela** la escucha |
+
+### Tiempo real
+
+| Método | Devuelve |
+|---|---|
+| `watchTable()` | la función que **cancela** la escucha |
+| `watchRecord()` | ídem |
+| `realtime.status` | `'disconnected'`, `'connecting'`, `'connected'` o `'error'` |
+| `realtime.close()` | nada |
+
+Un cambio (`RobleRealtimeEvent`) trae `operation` (`INSERT`, `UPDATE`,
+`DELETE`), `table`, `newValue` (`null` al borrar), `oldValue`, `primaryKey`,
+`path` y `pathString` (solo en el árbol JSON), y `commitTimestamp`.
 
 ---
 

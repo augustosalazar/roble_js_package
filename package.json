@@ -1,6 +1,6 @@
 {
   "name": "roble-client",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Cliente para la plataforma ROBLE de Uninorte OpenLab. Autenticación y CRUD sobre bases de datos PostgreSQL. Funciona en Node, navegador, React y React Native.",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
