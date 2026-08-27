@@ -41,8 +41,10 @@ cp "$SKILL_DIR/smoke.mjs" ./smoke.mjs
 ROBLE_CONTRACT_ID=tu_contrato node smoke.mjs
 ```
 
-Si el paquete se instaló desde npm, la copia está en
-`node_modules/roble-client/.claude/skills/use-roble-client/smoke.mjs`.
+**Ojo:** esta skill **no viaja dentro del paquete de npm**. Vive en el repo
+`github.com/augustosalazar/roble_js_package`, en
+`.claude/skills/use-roble-client/`. Si la necesitas en otro proyecto, cópiala
+de ahí.
 
 Salida real de una corrida buena:
 
