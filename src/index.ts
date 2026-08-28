@@ -1162,8 +1162,8 @@ export class RobleApiClient {
   /**
    * Servicio de tiempo real: estado de la conexion y cierre.
    *
-   * Para escuchar, `watchTable` o `json.watch`; esto es para saber si hay
-   * socket y para soltarlo al cerrar sesion.
+   * Para escuchar, `json.watch`; esto es para saber si hay socket y para
+   * soltarlo al cerrar sesion.
    */
   get realtime(): RobleRealtimeSocket {
     return (this.#realtimeSocket ??= new RobleRealtimeSocket({
@@ -1181,15 +1181,17 @@ export class RobleApiClient {
   /**
    * Escucha los cambios de una tabla SQL.
    *
+   * @deprecated El tiempo real de Roble escucha colecciones del arbol JSON, no
+   * tablas SQL. El servidor rechaza estas suscripciones con
+   * `REALTIME_UNKNOWN_COLLECTION`, asi que esto ya no entrega nada: usa
+   * `json.watch` sobre la coleccion correspondiente.
+   *
+   * Se mantiene, y no se borra, para que quien lo tenga escrito reciba el
+   * error del servidor explicando que hacer en vez de un `TypeError`.
+   *
    * Devuelve la funcion que cancela. El stream **no** trae lo que ya hay, solo
    * lo que cambie a partir de ahora: para pintar la lista completa, lee con
    * `read` y aplica encima lo que llegue.
-   *
-   * ```ts
-   * const parar = db.watchTable('products', (cambio) => {
-   *   console.log(cambio.operation, cambio.newValue);
-   * });
-   * ```
    *
    * `filters` los aplica el servidor antes de mandar nada, asi que filtrar
    * aqui ahorra el viaje de todo lo que no interesa.
@@ -1206,7 +1208,13 @@ export class RobleApiClient {
     return this.realtime.watch({ table, onEvent, ...opts });
   }
 
-  /** Escucha los cambios de un registro concreto, por su `_id`. */
+  /**
+   * Escucha los cambios de un registro concreto, por su `_id`.
+   *
+   * @deprecated Va sobre `watchTable`, asi que hereda su final: el servidor
+   * solo emite colecciones del arbol JSON. Usa `json.watch` sobre la ruta del
+   * nodo que te interesa.
+   */
   watchRecord(
     table: string,
     id: string | number,
