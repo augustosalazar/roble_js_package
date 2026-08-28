@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.5.0
+
+### Cambiado
+
+- **El tiempo real escucha colecciones del árbol JSON, no tablas SQL.** El
+  servidor dejó de replicar tablas: emitía a cualquiera con sesión sin pasar
+  por los permisos por rol, y compartía espacio de nombres con las
+  colecciones, así que una tabla homónima se entregaba a quien escuchaba la
+  colección. Requiere `realtime` v0.10.1.
+
+- **Un fallo del tiempo real ya no se pierde cuando no hay `onError`.** Como
+  es opcional, quien no lo pasaba se quedaba con una suscripción muda y sin
+  nada en ninguna parte que dijera por qué. Ahora sale por `console.warn`. Si
+  pasas `onError`, no cambia nada: no se duplica.
+
+### Obsoleto
+
+- **`watchTable` y `watchRecord`.** El servidor rechaza esas suscripciones con
+  `REALTIME_UNKNOWN_COLLECTION`, así que ya no entregan nada. Usa `json.watch`
+  sobre la colección correspondiente.
+
+  No se borran: dejarlas hace que llegue el error del servidor explicando qué
+  usar, mientras que quitarlas daría un `TypeError` sin pista.
+
 ## 3.4.0
 
 ### Añadido

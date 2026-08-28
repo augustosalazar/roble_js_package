@@ -289,4 +289,43 @@ describe('reparto', () => {
     // fallo en silencio.
     expect(String(fallos[0])).toContain('Cuota superada');
   });
+
+  it('sin onError el fallo va a la consola, no al vacío', () => {
+    const { rt, socket } = construir();
+    const avisos: string[] = [];
+    const original = console.warn;
+    console.warn = (m: string) => avisos.push(m);
+
+    try {
+      // Sin `onError`, que es como lo escribe casi todo el mundo.
+      rt.watch({ table: 'estudiantes', onEvent: () => {} });
+      socket().entregar('exception', {
+        code: 'REALTIME_UNKNOWN_COLLECTION',
+        message: '"estudiantes" no es una colección de este proyecto.',
+      });
+    } finally {
+      console.warn = original;
+    }
+
+    // Antes se perdía entero y quedaba una suscripción muda sin explicación.
+    expect(avisos).toHaveLength(1);
+    expect(avisos[0]).toContain('estudiantes');
+    expect(avisos[0]).toContain('[roble]');
+  });
+
+  it('con onError no duplica el aviso en consola', () => {
+    const { rt, socket } = construir();
+    const avisos: string[] = [];
+    const original = console.warn;
+    console.warn = (m: string) => avisos.push(m);
+
+    try {
+      rt.watch({ table: 'mensajes', onEvent: () => {}, onError: () => {} });
+      socket().entregar('exception', { message: 'Cuota superada' });
+    } finally {
+      console.warn = original;
+    }
+
+    expect(avisos).toHaveLength(0);
+  });
 });

@@ -256,7 +256,23 @@ export class RobleRealtimeSocket {
       typeof payload?.message === 'string'
         ? payload.message
         : 'Error del servicio de tiempo real';
-    for (const l of this.listeners) l.onError?.(new Error(mensaje));
+
+    const error = new Error(mensaje);
+    let entregado = false;
+    for (const l of this.listeners) {
+      if (!l.onError) continue;
+      l.onError(error);
+      entregado = true;
+    }
+
+    // `onError` es opcional, asi que sin esto el error se perdia entero: quien
+    // no lo pasa se quedaba mirando una suscripcion que no emite, sin nada en
+    // ninguna parte que dijera por que. Un aviso en consola no arregla el
+    // problema, pero deja de esconderlo.
+    if (!entregado) {
+      // eslint-disable-next-line no-console
+      console.warn(`[roble] tiempo real: ${mensaje}`);
+    }
   }
 
   private tablasActivas(): Set<string> {
