@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.6.0
+
+### Añadido
+
+- **`db.files`: archivos en el bucket del proyecto.** `upload`, `list`,
+  `getDownloadUrl` y `remove`.
+
+  Los bytes **no pasan por Roble**: el cliente pide una URL firmada y sube o
+  baja directo contra el bucket S3 del proyecto. Por eso no hay límite de
+  tamaño impuesto por el paquete —el que manda es el del bucket— y el archivo
+  no consume el ancho de banda del servidor.
+
+  ```ts
+  const fileId = await db.files.upload({ file, folder: 'facturas' });
+  const { downloadUrl } = await db.files.getDownloadUrl(fileId);
+  ```
+
+  El proyecto necesita un bucket conectado desde la consola, en
+  **Configuración → Almacenamiento**. Sin él, el servidor responde diciendo
+  eso mismo y dónde hacerlo.
+
+  Requiere `app-roble` v1.9.1 o superior y `db-service-roble` v1.8.0 o
+  superior.
+
 ## 3.5.0
 
 ### Cambiado
