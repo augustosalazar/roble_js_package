@@ -1242,6 +1242,32 @@ export class RobleApiClient {
   #json?: RobleJsonDb;
 
   /**
+   * Archivos del proyecto: sube y descarga contra el bucket S3-compatible del
+   * proyecto (el gestionado por Roble por defecto, o el propio si se
+   * configuro uno en la consola).
+   *
+   * Los bytes nunca pasan por el servidor de Roble: `upload` pide una URL
+   * firmada y sube directo al bucket; `getDownloadUrl` hace lo mismo al
+   * reves.
+   *
+   * ```ts
+   * const { fileId } = await db.files.upload({
+   *   fileName: 'foto.jpg',
+   *   mimeType: 'image/jpeg',
+   *   data: blob,
+   * });
+   * const { downloadUrl } = await db.files.getDownloadUrl(fileId);
+   * ```
+   */
+  get files(): RobleFileStorage {
+    return (this.#files ??= new RobleFileStorage((method, path, opts) =>
+      this._makeRequest('database', method, path, opts ?? {})
+    ));
+  }
+
+  #files?: RobleFileStorage;
+
+  /**
    * Devuelve el registro con ese `_id`, o `null` si no existe.
    *
    * ```ts
@@ -1405,6 +1431,122 @@ function segmentsOf(path: string): string[] {
  */
 function encodePath(path: string): string {
   return segmentsOf(path).map(encodeURIComponent).join('/');
+}
+
+// ============================
+//  Archivos (bucket S3-compatible)
+// ============================
+
+/** Peticion contra el servicio de datos, ya con el token puesto. */
+type RobleFileRequest = (
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  path: string,
+  opts?: { body?: any; query?: Record<string, any> }
+) => Promise<any>;
+
+/** Un archivo listado en el proyecto. No trae URL: pidela con `getDownloadUrl`. */
+export interface RobleFileInfo {
+  fileId: string;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  folder: string | null;
+  createdAt: string;
+}
+
+/** Datos binarios que `upload` acepta en cualquier entorno (navegador, Node, RN). */
+export type RobleFileData = Blob | ArrayBuffer | Uint8Array | string;
+
+function byteLengthOf(data: RobleFileData): number | undefined {
+  if (typeof data === 'string') return new TextEncoder().encode(data).length;
+  if (data instanceof Uint8Array) return data.byteLength;
+  if (data instanceof ArrayBuffer) return data.byteLength;
+  if (typeof Blob !== 'undefined' && data instanceof Blob) return data.size;
+  return undefined;
+}
+
+/**
+ * Archivos del bucket S3-compatible del proyecto.
+ *
+ * Los bytes van directo entre el cliente y el bucket con URLs firmadas: este
+ * modulo solo coordina la subida (pide la URL, sube, confirma) y consulta
+ * metadata. No hay limite de tamano propio de Roble mas alla del que ponga el
+ * bucket.
+ */
+export class RobleFileStorage {
+  readonly #request: RobleFileRequest;
+
+  constructor(request: RobleFileRequest) {
+    this.#request = request;
+  }
+
+  /**
+   * Sube un archivo y devuelve su `fileId`.
+   *
+   * Internamente: pide una URL de subida firmada, hace `PUT` directo al
+   * bucket con `data`, y confirma la subida. Si el `PUT` falla, el archivo
+   * queda registrado como `PENDING` y nunca aparece en `list()`.
+   */
+  async upload(params: {
+    fileName: string;
+    mimeType?: string;
+    data: RobleFileData;
+    folder?: string;
+  }): Promise<{ fileId: string }> {
+    const { fileId, uploadUrl } = await this.#request('POST', 'storage/objects', {
+      body: {
+        fileName: params.fileName,
+        mimeType: params.mimeType,
+        sizeBytes: byteLengthOf(params.data),
+        folder: params.folder,
+      },
+    });
+
+    const putRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: params.mimeType ? { 'Content-Type': params.mimeType } : undefined,
+      body: params.data as any,
+    });
+
+    if (!putRes.ok) {
+      throw new RobleApiException(
+        `No se pudo subir el archivo al bucket: HTTP ${putRes.status}`
+      );
+    }
+
+    await this.#request('POST', `storage/objects/${fileId}/complete`);
+
+    return { fileId };
+  }
+
+  /** Lista los archivos ya subidos, opcionalmente filtrados por carpeta. */
+  async list(folder?: string): Promise<RobleFileInfo[]> {
+    const res = await this.#request('GET', 'storage/objects', {
+      query: folder ? { folder } : undefined,
+    });
+
+    if (!Array.isArray(res)) return [];
+
+    return res.map((f: any) => ({
+      fileId: String(f.id),
+      fileName: String(f.file_name),
+      mimeType: f.mime_type ?? null,
+      sizeBytes: f.size_bytes !== undefined && f.size_bytes !== null ? Number(f.size_bytes) : null,
+      folder: f.folder ?? null,
+      createdAt: String(f.created_at),
+    }));
+  }
+
+  /** URL firmada para descargar `fileId`. Vence a los pocos minutos. */
+  async getDownloadUrl(fileId: string): Promise<{ downloadUrl: string; fileName: string }> {
+    const res = await this.#request('GET', `storage/objects/${fileId}`);
+    return { downloadUrl: res.downloadUrl, fileName: res.fileName };
+  }
+
+  /** Borra `fileId` del bucket y su metadata. Solo quien lo subio puede hacerlo. */
+  async remove(fileId: string): Promise<void> {
+    await this.#request('DELETE', `storage/objects/${fileId}`);
+  }
 }
 
 // ============================
