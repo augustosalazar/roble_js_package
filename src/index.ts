@@ -342,7 +342,6 @@ export class RobleApiClient {
   readonly #origin: string;
   readonly #socketFactory?: RobleSocketFactory;
 
-
   constructor(config: RobleApiConfig) {
     validateConfig(config);
 
@@ -1659,18 +1658,24 @@ export class RobleFileStorage {
     data: RobleFileData;
     folder?: string;
   }): Promise<{ fileId: string }> {
-    const { fileId, uploadUrl } = await this.#request('POST', 'storage/objects', {
-      body: {
-        fileName: params.fileName,
-        mimeType: params.mimeType,
-        sizeBytes: byteLengthOf(params.data),
-        folder: params.folder,
-      },
-    });
+    const { fileId, uploadUrl } = await this.#request(
+      'POST',
+      'storage/objects',
+      {
+        body: {
+          fileName: params.fileName,
+          mimeType: params.mimeType,
+          sizeBytes: byteLengthOf(params.data),
+          folder: params.folder,
+        },
+      }
+    );
 
     const putRes = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: params.mimeType ? { 'Content-Type': params.mimeType } : undefined,
+      headers: params.mimeType
+        ? { 'Content-Type': params.mimeType }
+        : undefined,
       body: params.data as any,
     });
 
@@ -1697,14 +1702,19 @@ export class RobleFileStorage {
       fileId: String(f.id),
       fileName: String(f.file_name),
       mimeType: f.mime_type ?? null,
-      sizeBytes: f.size_bytes !== undefined && f.size_bytes !== null ? Number(f.size_bytes) : null,
+      sizeBytes:
+        f.size_bytes !== undefined && f.size_bytes !== null
+          ? Number(f.size_bytes)
+          : null,
       folder: f.folder ?? null,
       createdAt: String(f.created_at),
     }));
   }
 
   /** URL firmada para descargar `fileId`. Vence a los pocos minutos. */
-  async getDownloadUrl(fileId: string): Promise<{ downloadUrl: string; fileName: string }> {
+  async getDownloadUrl(
+    fileId: string
+  ): Promise<{ downloadUrl: string; fileName: string }> {
     const res = await this.#request('GET', `storage/objects/${fileId}`);
     return { downloadUrl: res.downloadUrl, fileName: res.fileName };
   }

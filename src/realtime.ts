@@ -270,7 +270,6 @@ export class RobleRealtimeSocket {
     // ninguna parte que dijera por que. Un aviso en consola no arregla el
     // problema, pero deja de esconderlo.
     if (!entregado) {
-      // eslint-disable-next-line no-console
       console.warn(`[roble] tiempo real: ${mensaje}`);
     }
   }

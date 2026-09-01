@@ -69,7 +69,8 @@ const entrar = async (db: RobleApiClient) => {
 /** El estado en esa posicion, fallando claro si no se emitio. */
 const enPos = (estados: RobleAuthState[], i: number): RobleAuthState => {
   const estado = estados[i];
-  if (!estado) throw new Error(`no se emitio ningun estado en la posicion ${i}`);
+  if (!estado)
+    throw new Error(`no se emitio ningun estado en la posicion ${i}`);
   return estado;
 };
 

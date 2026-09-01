@@ -1,29 +1,49 @@
-import { fixupConfigRules } from '@eslint/compat';
-import { FlatCompat } from '@eslint/eslintrc';
 import js from '@eslint/js';
 import prettier from 'eslint-plugin-prettier';
+import prettierConfig from 'eslint-config-prettier';
+import tseslint from 'typescript-eslint';
 import { defineConfig } from 'eslint/config';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all,
-});
-
+/**
+ * Este paquete es TypeScript a secas: no hay React, ni JSX, ni un solo `.tsx`.
+ *
+ * Antes extendía `@react-native/eslint-config` a través de `FlatCompat`, herencia
+ * de la plantilla con la que se creó. Además de sobrar, no funcionaba: los
+ * plugins que ese config declara quedan instalados dentro de su propia carpeta,
+ * y la configuración plana los busca desde la raíz del proyecto. `eslint` fallaba
+ * con «couldn't find the plugin eslint-plugin-react-native» antes de leer una
+ * sola línea de código, así que el `lint` del pre-commit no comprobaba nada.
+ */
 export default defineConfig([
   {
-    extends: fixupConfigRules(compat.extends('@react-native', 'prettier')),
+    ignores: ['node_modules/', 'lib/', 'example/', 'coverage/'],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  prettierConfig,
+  {
     plugins: { prettier },
     rules: {
-      'react/react-in-jsx-scope': 'off',
       'prettier/prettier': 'error',
+
+      // El servidor devuelve filas que define quien usa el paquete, así que su
+      // forma no se puede saber aquí. `any` en esos sitios es la descripción
+      // honesta del contrato, no una dejadez.
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   {
-    ignores: ['node_modules/', 'lib/'],
+    // Las pruebas usan los globales de Jest.
+    files: ['src/__tests__/**/*.ts'],
+    languageOptions: {
+      globals: {
+        jest: 'readonly',
+        describe: 'readonly',
+        it: 'readonly',
+        expect: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+      },
+    },
   },
 ]);

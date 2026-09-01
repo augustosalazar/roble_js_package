@@ -92,7 +92,6 @@ describe('base de datos JSON', () => {
 
     expect(ultima().params).toEqual({ shallow: 'true' });
   });
-
 });
 
 describe('consulta guardada por nombre', () => {
@@ -132,7 +131,12 @@ describe('consulta guardada por nombre', () => {
 
 describe('proveedores', () => {
   const proveedores = [
-    { name: 'google', displayName: 'Google', autoLinkSupported: true, clientId: 'cid' },
+    {
+      name: 'google',
+      displayName: 'Google',
+      autoLinkSupported: true,
+      clientId: 'cid',
+    },
     { name: 'github', displayName: 'GitHub' },
   ];
 

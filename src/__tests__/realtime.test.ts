@@ -1,33 +1,42 @@
 import { RobleRealtimeSocket } from '../realtime';
 
+/**
+ * Lo que guarda este doble: manejadores de socket.io, que reciben lo que venga.
+ *
+ * `Function` a secas acepta cualquier cosa invocable y no dice nada de la
+ * llamada; esto al menos dice que se llama con argumentos y no se usa el
+ * retorno.
+ */
+type Manejador = (...args: any[]) => void;
+
 /** Socket de mentira: apunta lo emitido y deja al test entregar eventos. */
 class SocketFalso {
   connected = true;
   cerrado = false;
   readonly emitidos: Array<{ event: string; data: any }> = [];
-  readonly acks: Function[] = [];
-  private readonly handlers = new Map<string, Function[]>();
+  readonly acks: Manejador[] = [];
+  private readonly handlers = new Map<string, Manejador[]>();
 
   readonly io = {
     opts: { query: {} as Record<string, any> },
-    on: (event: string, h: Function) => this.onIo(event, h),
+    on: (event: string, h: Manejador) => this.onIo(event, h),
   };
-  private readonly ioHandlers = new Map<string, Function[]>();
+  private readonly ioHandlers = new Map<string, Manejador[]>();
 
-  on(event: string, handler: Function) {
+  on(event: string, handler: Manejador) {
     const lista = this.handlers.get(event) ?? [];
     lista.push(handler);
     this.handlers.set(event, lista);
     return this;
   }
 
-  private onIo(event: string, handler: Function) {
+  private onIo(event: string, handler: Manejador) {
     const lista = this.ioHandlers.get(event) ?? [];
     lista.push(handler);
     this.ioHandlers.set(event, lista);
   }
 
-  emit(event: string, data?: any, ack?: Function) {
+  emit(event: string, data?: any, ack?: Manejador) {
     this.emitidos.push({ event, data });
     if (ack) this.acks.push(ack);
     return this;
@@ -235,8 +244,14 @@ describe('reparto', () => {
       onEvent: (e) => vistos.push(e),
     });
 
-    socket().entregar('data_change', cambio({ table: 'salas', path: ['salas', 'general', 'm1'] }));
-    socket().entregar('data_change', cambio({ table: 'salas', path: ['salas', 'privada', 'm2'] }));
+    socket().entregar(
+      'data_change',
+      cambio({ table: 'salas', path: ['salas', 'general', 'm1'] })
+    );
+    socket().entregar(
+      'data_change',
+      cambio({ table: 'salas', path: ['salas', 'privada', 'm2'] })
+    );
 
     // La suscripción es por colección: el servidor manda las dos salas.
     expect(vistos.map((e) => e.path.at(-1))).toEqual(['m1']);
@@ -251,7 +266,10 @@ describe('reparto', () => {
       onEvent: (e) => vistos.push(e),
     });
 
-    socket().entregar('data_change', cambio({ table: 'salas', path: ['salas', 'general'] }));
+    socket().entregar(
+      'data_change',
+      cambio({ table: 'salas', path: ['salas', 'general'] })
+    );
 
     // Reemplazar el padre cambia al hijo aunque nadie lo nombre.
     expect(vistos).toHaveLength(1);
