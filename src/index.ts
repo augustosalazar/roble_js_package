@@ -180,6 +180,41 @@ export interface RobleUser {
   [key: string]: any;
 }
 
+/**
+ * Por que cambio la sesion.
+ *
+ * Existe porque `null` no basta: quien escucha necesita distinguir «se fue» de
+ * «se le cayo», y son dos pantallas distintas.
+ */
+export type RobleAuthReason =
+  /** Acaba de entrar: por contrasena, por proveedor social o por id token. */
+  | 'signedIn'
+  /** Se recupero al arrancar una sesion que ya estaba guardada. */
+  | 'restored'
+  /** Se cerro la sesion a proposito. */
+  | 'signedOut'
+  /** Se cayo sola: el token se rechazo y el de refresco tampoco valia. */
+  | 'expired';
+
+/** El estado de la sesion, tal como queda despues de cada cambio. */
+export interface RobleAuthState {
+  /**
+   * Quien entro, o `null` si no hay nadie.
+   *
+   * Puede ser `null` **con sesion iniciada**: `restoreSession({ verify: false })`
+   * carga los tokens sin llamar al servidor, asi que no hay perfil que dar.
+   */
+  user: RobleUser | null;
+  reason: RobleAuthReason;
+  /**
+   * Si hay sesion. Sale del motivo y no del perfil, porque una sesion
+   * recuperada sin verificar no trae perfil y sigue siendo una sesion.
+   */
+  isSignedIn: boolean;
+  /** La sesion se acabo sin que nadie la cerrara. */
+  hasExpired: boolean;
+}
+
 /** Un proveedor de login social configurado en el proyecto. */
 export interface RobleProviderInfo {
   /** Identificador estable: `google`, `microsoft`, `github`… */
@@ -356,56 +391,110 @@ export class RobleApiClient {
     void this.#persistSession();
   }
 
-  #sessionExpiredListeners = new Set<() => void>();
+  #authStateListeners = new Set<(estado: RobleAuthState) => void>();
+
+  #authState: RobleAuthState = {
+    user: null,
+    reason: 'signedOut',
+    isSignedIn: false,
+    hasExpired: false,
+  };
 
   /**
-   * Se avisa una sola vez por sesión caída.
+   * Se avisa una sola vez por sesion caida.
    *
    * Una app hace varias llamadas a la vez —la lista, el perfil, el chat— y
-   * todas fallan con el mismo 401. Sin esto, cada una avisaría por su cuenta.
+   * todas fallan con el mismo 401. Sin esto, cada una avisaria por su cuenta.
    */
   #sessionExpiredAvisado = false;
 
+  /** El estado de la sesion ahora mismo, sin esperar al siguiente cambio. */
+  get authState(): RobleAuthState {
+    return this.#authState;
+  }
+
   /**
-   * Avisa cuando la sesión se cae sola, sin que nadie haya cerrado sesión.
+   * La sesion y cada cambio que le pase.
    *
-   * Ocurre cuando el servidor rechaza el access token y el refresh token
-   * tampoco vale: a partir de ahí no hay forma de seguir, y el cliente es
-   * quien primero lo sabe —es el código al que le acaba de fallar el
-   * refresco—. Deducirlo cazando `RobleApiAuthException` funciona, pero solo
-   * si alguien hace una llamada y la captura en el sitio correcto.
+   * Llama al escuchador **ya**, con el estado actual, y luego en cada cambio.
+   * Asi una pantalla puede pintarse desde aqui sin preguntar nada aparte:
    *
-   * La sesión ya está descartada cuando esto avisa (`isLoggedIn` es `false`),
-   * así que quien escuche solo tiene que llevar a la persona a la entrada.
+   * ```ts
+   * const dejarDeEscuchar = db.onAuthStateChanged((estado) => {
+   *   setUsuario(estado.isSignedIn ? estado.user : null);
+   * });
+   * ```
    *
-   * No avisa en `logout()`: cerrar sesión a propósito no es que se te caiga.
+   * El `reason` dice **por que** cambio, que es lo que un `user | null` a secas
+   * no cuenta: salir y que se te caiga dejan los dos sin sesion, pero solo uno
+   * merece un «tu sesion caduco».
+   *
+   * @returns Como dejar de escuchar. Llamalo al desmontar el componente.
+   */
+  onAuthStateChanged(listener: (estado: RobleAuthState) => void): () => void {
+    this.#authStateListeners.add(listener);
+    try {
+      listener(this.#authState);
+    } catch {
+      // Un escuchador que revienta al recibir el estado inicial no puede
+      // impedir que se suscriba, ni tumbar a quien lo suscribio.
+    }
+    return () => {
+      this.#authStateListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Solo las caidas, para quien unicamente quiera mandar a la entrada.
+   *
+   * Es un filtro de {@link onAuthStateChanged}, no otro mecanismo. A diferencia
+   * de aquel, este **no** reparte el estado actual al suscribirse: avisa de lo
+   * que pase a partir de ahora, que es lo que se espera de un aviso. Repetirlo
+   * mandaria a la entrada a alguien que ya esta en ella.
    *
    * ```ts
    * const dejarDeEscuchar = db.onSessionExpired(() => navigate('/login'));
    * ```
-   *
-   * @returns Cómo dejar de escuchar. Llámalo al desmontar el componente: sin
-   * esto, cada montaje deja un escuchador más sobre el mismo cliente.
    */
   onSessionExpired(listener: () => void): () => void {
-    this.#sessionExpiredListeners.add(listener);
-    return () => {
-      this.#sessionExpiredListeners.delete(listener);
-    };
+    let primero = true;
+    return this.onAuthStateChanged((estado) => {
+      // El primero es el estado actual que reparte onAuthStateChanged, no un
+      // cambio.
+      if (primero) {
+        primero = false;
+        return;
+      }
+      if (estado.hasExpired) listener();
+    });
   }
 
-  #avisarSesionCaida() {
-    if (this.#sessionExpiredAvisado) return;
-    this.#sessionExpiredAvisado = true;
+  #emitAuthState(reason: RobleAuthReason, user: RobleUser | null = null) {
+    if (reason === 'expired') {
+      if (this.#sessionExpiredAvisado) return;
+      this.#sessionExpiredAvisado = true;
+    }
 
-    // Sobre una copia: un escuchador puede darse de baja a sí mismo desde
+    // Salir de donde ya no se estaba no es un cambio: pasa al arrancar sin
+    // sesion guardada, y repetirlo haria que una app pintara la entrada dos
+    // veces.
+    if (reason === 'signedOut' && !this.#authState.isSignedIn) return;
+
+    this.#authState = {
+      user,
+      reason,
+      isSignedIn: reason === 'signedIn' || reason === 'restored',
+      hasExpired: reason === 'expired',
+    };
+
+    // Sobre una copia: un escuchador puede darse de baja a si mismo desde
     // dentro, y modificar el Set mientras se recorre se salta a otro.
-    for (const listener of [...this.#sessionExpiredListeners]) {
+    for (const listener of [...this.#authStateListeners]) {
       try {
-        listener();
+        listener(this.#authState);
       } catch {
         // Un escuchador que revienta no puede impedir que se avise al resto,
-        // ni convertir la sesión caducada en un error distinto.
+        // ni convertir la sesion caducada en un error distinto.
       }
     }
   }
@@ -453,11 +542,16 @@ export class RobleApiClient {
     // Si la sesión venía del almacén, se sigue persistiendo.
     this.#persistTokens = true;
 
-    if (!verify) return true;
+    if (!verify) {
+      // Sin perfil: no se ha llamado al servidor, que es justo lo que se pidió.
+      this.#emitAuthState('restored');
+      return true;
+    }
 
     // 2. Renovar es la única forma de saber si el refresh token sigue vivo.
     try {
       await this.#refreshAccessToken();
+      this.#emitAuthState('restored', await this.currentUser());
       return true;
     } catch (e) {
       if (
@@ -467,6 +561,10 @@ export class RobleApiClient {
         throw e;
       }
       // Token revocado o caducado: la sesión ya no sirve.
+      //
+      // No es una caída: nadie estaba dentro todavía. Arrancar con una sesión
+      // guardada que ya no vale es de lo más normal, y decirle a quien abre la
+      // app que «su sesión caducó» antes de enseñarle nada no ayuda.
       this.#clearTokens();
       return false;
     }
@@ -631,7 +729,7 @@ export class RobleApiClient {
         // vez de dejarla a medias, porque lo que queda no sirve para nada y
         // quien escuche va a mandar a esa persona a la pantalla de entrada.
         this.#clearTokens();
-        this.#avisarSesionCaida();
+        this.#emitAuthState('expired');
         throw new RobleApiAuthException(
           `Token expirado y no se pudo refrescar: ${msg}`
         );
@@ -785,7 +883,9 @@ export class RobleApiClient {
       this.#updateAccessToken(data.accessToken);
     }
 
-    return this.currentUser();
+    const perfil = await this.currentUser();
+    this.#emitAuthState('signedIn', perfil);
+    return perfil;
   }
 
   /** Cierra la sesión en el servidor y descarta los tokens locales. */
@@ -800,6 +900,7 @@ export class RobleApiClient {
     await this._makeRequest('auth', 'POST', 'logout', { isAuthRequest: true });
 
     this.#clearTokens();
+    this.#emitAuthState('signedOut');
   }
 
   /**
@@ -853,6 +954,7 @@ export class RobleApiClient {
     });
 
     this.#clearTokens();
+    this.#emitAuthState('signedOut');
   }
 
   /**
@@ -1203,7 +1305,9 @@ export class RobleApiClient {
       );
     }
 
-    return this.currentUser();
+    const perfil = await this.currentUser();
+    this.#emitAuthState('signedIn', perfil);
+    return perfil;
   }
 
   /**

@@ -1,5 +1,41 @@
 # Changelog
 
+## 3.8.0
+
+### Añadido
+
+- **`db.onAuthStateChanged(cb)`: la sesión y cada cambio que le pase.** Llama al
+  escuchador ya, con el estado actual, y luego en cada cambio: al entrar, al
+  recuperar una sesión guardada, al salir y cuando se cae sola.
+
+  ```js
+  const dejarDeEscuchar = db.onAuthStateChanged((estado) => {
+    setUsuario(estado.isSignedIn ? estado.user : null);
+  });
+  ```
+
+  Cada estado dice **por qué** cambió (`RobleAuthReason`), que es lo que un
+  `user | null` a secas no cuenta: `signedOut` y `expired` dejan los dos sin
+  sesión, pero solo uno merece un «tu sesión caducó». `restored` se distingue de
+  `signedIn` porque recuperar una sesión guardada no es que alguien acabe de
+  entrar.
+
+  `db.authState` da el estado de ahora mismo sin suscribirse.
+
+  Mismo comportamiento que `authStateChanges` del paquete de Flutter (1.8.0).
+
+### Cambiado
+
+- `onSessionExpired` pasa a ser un filtro de `onAuthStateChanged`, no otro
+  mecanismo. Mismo comportamiento que en 3.7.0, y sigue sin repartir el estado
+  actual al suscribirse: es un aviso de lo que pase a partir de ahora.
+
+- `restoreSession()` pide el perfil al comprobar que la sesión sigue viva, para
+  poder emitirlo con el estado. Una app que ya lo pedía por su cuenta al
+  arrancar puede dejar de hacerlo.
+
+- Borrar la cuenta emite `signedOut`, que antes se quedaba sin avisar.
+
 ## 3.7.0
 
 ### Añadido

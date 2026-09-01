@@ -118,11 +118,35 @@ const db = new RobleApiClient({
 
 Sin `storage`, la sesión vive solo en memoria y se pierde al reiniciar.
 
+### Enterarse de la sesión
+
+`restoreSession()` te dice si la sesión valía **al arrancar**. Para lo demás
+—entrar, salir, y que se caiga sola— hay un solo sitio:
+
+```js
+const dejarDeEscuchar = db.onAuthStateChanged((estado) => {
+  setUsuario(estado.isSignedIn ? estado.user : null);
+});
+```
+
+Llama al escuchador **ya**, con el estado actual, y luego en cada cambio. El
+`reason` dice por qué cambió:
+
+| `reason` | Cuándo |
+|---|---|
+| `signedIn` | acaba de entrar |
+| `restored` | se recuperó una sesión que ya estaba guardada |
+| `signedOut` | cerró sesión a propósito |
+| `expired` | se cayó sola: el token se rechazó y el de refresco tampoco valía |
+
+Esa diferencia es la razón de que no sea un `user | null` a secas: `signedOut` y
+`expired` dejan los dos sin sesión, pero solo uno merece un «tu sesión caducó».
+
+`db.authState` da el estado de ahora mismo sin suscribirse.
+
 ### Cuando la sesión caduca sola
 
-`restoreSession()` te dice si la sesión valía **al arrancar**. Pero una sesión
-también se cae con la app abierta: el token se renueva solo mientras el de
-refresco siga vivo, y cuando ese también caduca ya no hay forma de seguir.
+Si solo te interesa mandar a la entrada, hay un atajo:
 
 ```js
 const dejarDeEscuchar = db.onSessionExpired(() => {
@@ -130,12 +154,14 @@ const dejarDeEscuchar = db.onSessionExpired(() => {
 });
 ```
 
-Cuando avisa, la sesión ya está descartada (`isLoggedIn` es `false`), así que
-solo tienes que llevar a esa persona a la pantalla de entrada. Avisa una sola
-vez aunque fallen a la vez varias llamadas, y **no** avisa en `logout()`:
-cerrar sesión a propósito no es que se te caiga.
+Es un filtro de `onAuthStateChanged`, no otro mecanismo. A diferencia de aquel,
+**no** reparte el estado actual al suscribirse: avisa de lo que pase a partir de
+ahora, porque repetirlo mandaría a la entrada a alguien que ya está en ella.
 
-Devuelve cómo dejar de escuchar. En React, sueltalo al desmontar:
+Cuando avisa, la sesión ya está descartada (`isLoggedIn` es `false`). Avisa una
+sola vez aunque fallen a la vez varias llamadas, y **no** avisa en `logout()`.
+
+Los dos devuelven cómo dejar de escuchar. En React, sueltalo al desmontar:
 
 ```jsx
 useEffect(() => db.onSessionExpired(() => navigate('/login')), []);
@@ -404,7 +430,9 @@ Todo devuelve una promesa salvo `isLoggedIn`, `watchTable`, `watchRecord` y
 | `isLoggedIn` | `boolean` — si hay sesión en memoria |
 | `restoreSession()` | `boolean` — `true` si la sesión guardada sigue viva |
 | `logout()` | nada |
-| `onSessionExpired(cb)` | `() => void` — avisa si la sesión se cae sola; devuelve cómo dejar de escuchar |
+| `onAuthStateChanged(cb)` | `() => void` — la sesión y cada cambio; llama ya con el estado actual |
+| `authState` | `RobleAuthState` — el estado de ahora mismo |
+| `onSessionExpired(cb)` | `() => void` — solo las caídas; no reparte el estado actual |
 
 ### Cuentas
 
