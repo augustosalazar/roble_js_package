@@ -348,9 +348,66 @@ export class RobleApiClient {
   }
 
   #updateAccessToken(token: string | null) {
+    // Una sesión nueva vuelve a armar el aviso: si no, la segunda vez que se
+    // cayera nadie se enteraría.
+    if (token) this.#sessionExpiredAvisado = false;
     this.#accessToken = token;
     // Único punto por el que pasan login, refresco, logout y restauración.
     void this.#persistSession();
+  }
+
+  #sessionExpiredListeners = new Set<() => void>();
+
+  /**
+   * Se avisa una sola vez por sesión caída.
+   *
+   * Una app hace varias llamadas a la vez —la lista, el perfil, el chat— y
+   * todas fallan con el mismo 401. Sin esto, cada una avisaría por su cuenta.
+   */
+  #sessionExpiredAvisado = false;
+
+  /**
+   * Avisa cuando la sesión se cae sola, sin que nadie haya cerrado sesión.
+   *
+   * Ocurre cuando el servidor rechaza el access token y el refresh token
+   * tampoco vale: a partir de ahí no hay forma de seguir, y el cliente es
+   * quien primero lo sabe —es el código al que le acaba de fallar el
+   * refresco—. Deducirlo cazando `RobleApiAuthException` funciona, pero solo
+   * si alguien hace una llamada y la captura en el sitio correcto.
+   *
+   * La sesión ya está descartada cuando esto avisa (`isLoggedIn` es `false`),
+   * así que quien escuche solo tiene que llevar a la persona a la entrada.
+   *
+   * No avisa en `logout()`: cerrar sesión a propósito no es que se te caiga.
+   *
+   * ```ts
+   * const dejarDeEscuchar = db.onSessionExpired(() => navigate('/login'));
+   * ```
+   *
+   * @returns Cómo dejar de escuchar. Llámalo al desmontar el componente: sin
+   * esto, cada montaje deja un escuchador más sobre el mismo cliente.
+   */
+  onSessionExpired(listener: () => void): () => void {
+    this.#sessionExpiredListeners.add(listener);
+    return () => {
+      this.#sessionExpiredListeners.delete(listener);
+    };
+  }
+
+  #avisarSesionCaida() {
+    if (this.#sessionExpiredAvisado) return;
+    this.#sessionExpiredAvisado = true;
+
+    // Sobre una copia: un escuchador puede darse de baja a sí mismo desde
+    // dentro, y modificar el Set mientras se recorre se salta a otro.
+    for (const listener of [...this.#sessionExpiredListeners]) {
+      try {
+        listener();
+      } catch {
+        // Un escuchador que revienta no puede impedir que se avise al resto,
+        // ni convertir la sesión caducada en un error distinto.
+      }
+    }
   }
 
   /** Descarta la sesión en memoria y en el almacenamiento. */
@@ -570,6 +627,11 @@ export class RobleApiClient {
         await this.#refreshAccessToken();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        // El refresh token tampoco vale: la sesión se acabó. Se tira aquí en
+        // vez de dejarla a medias, porque lo que queda no sirve para nada y
+        // quien escuche va a mandar a esa persona a la pantalla de entrada.
+        this.#clearTokens();
+        this.#avisarSesionCaida();
         throw new RobleApiAuthException(
           `Token expirado y no se pudo refrescar: ${msg}`
         );

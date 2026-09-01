@@ -118,6 +118,31 @@ const db = new RobleApiClient({
 
 Sin `storage`, la sesión vive solo en memoria y se pierde al reiniciar.
 
+### Cuando la sesión caduca sola
+
+`restoreSession()` te dice si la sesión valía **al arrancar**. Pero una sesión
+también se cae con la app abierta: el token se renueva solo mientras el de
+refresco siga vivo, y cuando ese también caduca ya no hay forma de seguir.
+
+```js
+const dejarDeEscuchar = db.onSessionExpired(() => {
+  navigate('/login');
+});
+```
+
+Cuando avisa, la sesión ya está descartada (`isLoggedIn` es `false`), así que
+solo tienes que llevar a esa persona a la pantalla de entrada. Avisa una sola
+vez aunque fallen a la vez varias llamadas, y **no** avisa en `logout()`:
+cerrar sesión a propósito no es que se te caiga.
+
+Devuelve cómo dejar de escuchar. En React, sueltalo al desmontar:
+
+```jsx
+useEffect(() => db.onSessionExpired(() => navigate('/login')), []);
+```
+
+Sin eso, cada montaje deja un escuchador más sobre el mismo cliente.
+
 ### Registro con código por correo
 
 ```js
@@ -379,6 +404,7 @@ Todo devuelve una promesa salvo `isLoggedIn`, `watchTable`, `watchRecord` y
 | `isLoggedIn` | `boolean` — si hay sesión en memoria |
 | `restoreSession()` | `boolean` — `true` si la sesión guardada sigue viva |
 | `logout()` | nada |
+| `onSessionExpired(cb)` | `() => void` — avisa si la sesión se cae sola; devuelve cómo dejar de escuchar |
 
 ### Cuentas
 

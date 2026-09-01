@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.7.0
+
+### Añadido
+
+- **`db.onSessionExpired(cb)`: aviso cuando la sesión se cae sola.** Avisa
+  cuando el servidor rechaza el access token y el de refresco tampoco vale, que
+  es el punto en el que ya no hay forma de seguir.
+
+  ```js
+  const dejarDeEscuchar = db.onSessionExpired(() => navigate('/login'));
+  ```
+
+  Antes esto solo se podía deducir cazando `RobleApiAuthException`, y
+  únicamente si alguien hacía una llamada y la capturaba en el sitio correcto:
+  una sesión caducada se quedaba enseñando el error en cada pantalla mientras
+  la app seguía creyéndose dentro. El cliente es quien primero lo sabe, porque
+  es el código al que le acaba de fallar el refresco.
+
+  La sesión ya está descartada cuando avisa —`isLoggedIn` es `false`—, avisa
+  una sola vez aunque fallen a la vez varias llamadas, se rearma al entrar de
+  nuevo, y no avisa en `logout()`.
+
+  Devuelve cómo darse de baja, para soltarlo al desmontar el componente: sin
+  eso, cada montaje deja un escuchador más sobre el mismo cliente.
+
 ## 3.6.0
 
 ### Añadido
