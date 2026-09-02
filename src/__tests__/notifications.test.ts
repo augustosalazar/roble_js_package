@@ -289,6 +289,30 @@ describe('RobleNotifications', () => {
     expect(llamadas[0]!.endpoint).toBe('a%2Fb/read');
   });
 
+  it('apunta el aparato con su plataforma', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde({ token: 'tok-1', platform: 'android' });
+
+    await notifications.registerDevice('tok-1', 'android');
+
+    expect(llamadas[0]!.method).toBe('POST');
+    expect(llamadas[0]!.endpoint).toBe('devices');
+    expect(llamadas[0]!.opts.body).toEqual({
+      token: 'tok-1',
+      platform: 'android',
+    });
+  });
+
+  it('escapa el token del aparato en la ruta al soltarlo', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde({ success: true });
+
+    await notifications.unregisterDevice('a/b+c');
+
+    expect(llamadas[0]!.method).toBe('DELETE');
+    expect(llamadas[0]!.endpoint).toBe('devices/a%2Fb%2Bc');
+  });
+
   it('marcar todas devuelve cuantas cambiaron', async () => {
     const { notifications, responde } = api();
     responde({ marked: 3 });

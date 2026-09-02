@@ -24,6 +24,22 @@
   `notifications.connection.onUnreadCount` para el globito, que el servidor
   manda al conectar sin que haya que pedirlo.
 
+- **`registerDevice(token, platform)`: notificaciones con la app cerrada.** El
+  token lo da el SDK de Firebase en tu app; este paquete solo lo guarda para que
+  Roble pueda mandar el push.
+
+  ```js
+  const token = await getToken(messaging, { vapidKey });
+  await db.notifications.registerDevice(token, 'web');
+  ```
+
+  Hacen falta **tus** credenciales de Firebase, subidas en la consola de Roble:
+  un token de FCM está atado al proyecto de Firebase con el que registraste la
+  app, así que Roble no puede enviarle push con las suyas.
+
+  `unregisterDevice(token)` antes de cerrar sesión; si no, ese aparato sigue
+  recibiendo los avisos de esa cuenta.
+
 ### Corregido
 
 - Salir de la sesión cierra el socket de notificaciones. Quedaba abierto y

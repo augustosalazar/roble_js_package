@@ -247,6 +247,19 @@ describe('rutas de notificaciones', () => {
     expect(ultima().method).toBe('DELETE');
   });
 
+  it('los aparatos cuelgan de las notificaciones, no de la raiz', async () => {
+    mockResponder = () => ({ status: 200, data: {} });
+    const db = cliente();
+
+    await db.notifications.registerDevice('tok-1', 'ios');
+    expect(ultima().url).toBe('/realtime/notifications/proyecto_ab12/devices');
+
+    await db.notifications.unregisterDevice('tok-1');
+    expect(ultima().url).toBe(
+      '/realtime/notifications/proyecto_ab12/devices/tok-1'
+    );
+  });
+
   it('no se confunden con la raiz del arbol JSON del proyecto', async () => {
     mockResponder = () => ({ status: 200, data: [] });
     const db = cliente();

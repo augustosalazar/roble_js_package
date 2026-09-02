@@ -53,6 +53,20 @@ export interface RobleSendNotification {
   expiresAt?: string;
 }
 
+/** Sistema del aparato que recibe el push. */
+export type RobleDevicePlatform = 'android' | 'ios' | 'web';
+
+/** Un aparato apuntado para recibir push. */
+export interface RobleDevice {
+  dbName: string;
+  userId: string;
+  /** El token de FCM del aparato. */
+  token: string;
+  platform: RobleDevicePlatform;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
 /** Filtros del listado. */
 export interface RobleListNotifications {
   unread?: boolean;
@@ -319,6 +333,43 @@ export class RobleNotifications {
    */
   async remove(id: string): Promise<void> {
     await this.request('DELETE', encodeURIComponent(id));
+  }
+
+  /**
+   * Apunta este aparato para recibir push cuando la app este cerrada.
+   *
+   * El `token` lo da el SDK de Firebase dentro de tu app —este paquete no lo
+   * pide ni lo genera—, y el push solo sale si el proyecto tiene subidas sus
+   * credenciales de Firebase en la consola de Roble.
+   *
+   * Llamarlo otra vez con el mismo token no duplica nada: solo refresca la
+   * fecha, que es justo lo que conviene hacer en cada arranque.
+   *
+   * ```ts
+   * const token = await getToken(messaging, { vapidKey });
+   * await db.notifications.registerDevice(token, 'web');
+   * ```
+   */
+  async registerDevice(
+    token: string,
+    platform: RobleDevicePlatform
+  ): Promise<RobleDevice> {
+    return this.request('POST', 'devices', { body: { token, platform } });
+  }
+
+  /**
+   * Deja de recibir push en este aparato.
+   *
+   * Llamalo **antes** de cerrar sesion: despues ya no hay token con el que
+   * pedirlo, y el aparato seguiria recibiendo los avisos de esa cuenta.
+   */
+  async unregisterDevice(token: string): Promise<void> {
+    await this.request('DELETE', `devices/${encodeURIComponent(token)}`);
+  }
+
+  /** Los aparatos que esta cuenta tiene apuntados. */
+  async devices(): Promise<RobleDevice[]> {
+    return this.request('GET', 'devices');
   }
 
   /**
