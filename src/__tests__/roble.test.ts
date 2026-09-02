@@ -221,3 +221,40 @@ describe('id_token', () => {
     ).rejects.toThrow(/access token/);
   });
 });
+
+describe('rutas de notificaciones', () => {
+  it('cuelgan de /realtime/notifications, no del arbol JSON', async () => {
+    mockResponder = () => ({ status: 200, data: [] });
+    const db = cliente();
+
+    await db.notifications.list();
+    expect(ultima().url).toBe('/realtime/notifications/proyecto_ab12');
+
+    await db.notifications.unreadCount();
+    expect(ultima().url).toBe(
+      '/realtime/notifications/proyecto_ab12/unread-count'
+    );
+
+    await db.notifications.markAllRead();
+    expect(ultima().url).toBe('/realtime/notifications/proyecto_ab12/read-all');
+    expect(ultima().method).toBe('PATCH');
+
+    await db.notifications.markRead('n-1');
+    expect(ultima().url).toBe('/realtime/notifications/proyecto_ab12/n-1/read');
+
+    await db.notifications.remove('n-1');
+    expect(ultima().url).toBe('/realtime/notifications/proyecto_ab12/n-1');
+    expect(ultima().method).toBe('DELETE');
+  });
+
+  it('no se confunden con la raiz del arbol JSON del proyecto', async () => {
+    mockResponder = () => ({ status: 200, data: [] });
+    const db = cliente();
+
+    await db.json.collections();
+    expect(ultima().url).toBe('/realtime/proyecto_ab12');
+
+    await db.notifications.list();
+    expect(ultima().url).toBe('/realtime/notifications/proyecto_ab12');
+  });
+});

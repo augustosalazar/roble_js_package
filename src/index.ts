@@ -7,6 +7,16 @@ import {
   type RobleFilter,
   type RobleRealtimeOperation,
 } from './realtime';
+import {
+  RobleNotifications,
+  RobleNotificationsSocket,
+  type RobleNotification,
+  type RobleNotificationEvent,
+  type RobleNotificationEventType,
+  type RobleNotificationsStatus,
+  type RobleSendNotification,
+  type RobleListNotifications,
+} from './notifications';
 import axios, {
   type AxiosInstance,
   type AxiosRequestConfig,
@@ -104,7 +114,7 @@ export class RoblePartialInsertException extends RobleApiException {
 export type RobleApiHeaders = Record<string, string>;
 
 /** Servicio al que va la peticion; decide el prefijo de la ruta. */
-type RobleService = 'auth' | 'database' | 'realtime';
+type RobleService = 'auth' | 'database' | 'realtime' | 'notifications';
 
 /** Registro que el servidor rechazó durante un `POST /insert`. */
 export interface RobleSkippedRecord {
@@ -502,6 +512,10 @@ export class RobleApiClient {
   #clearTokens() {
     this.#refreshToken = null;
     this.#updateAccessToken(null);
+    // El socket de notificaciones sigue autenticado como quien acaba de salir:
+    // dejarlo abierto le entregaria a la siguiente persona lo que llegue para
+    // la anterior.
+    this.#notificationsSocket?.close();
   }
 
   /**
@@ -623,6 +637,14 @@ export class RobleApiClient {
   //  Helpers internos
   // ============================
   private buildPath(kind: RobleService, endpoint: string) {
+    if (kind === 'notifications') {
+      // Cuelga de /realtime porque comparte servicio, pero es una funcion
+      // aparte: no pasa por las colecciones del arbol JSON.
+      return endpoint
+        ? `/realtime/notifications/${this.contractId}/${endpoint}`
+        : `/realtime/notifications/${this.contractId}`;
+    }
+
     if (kind === 'realtime') {
       // El arbol JSON cuelga de /realtime en el mismo host que la API. No hay
       // `realtimeBaseUrl`: la 3.1.0 lo retiro junto con el socket, y esto no
@@ -1433,6 +1455,45 @@ export class RobleApiClient {
   #files?: RobleFileStorage;
 
   /**
+   * Notificaciones del proyecto.
+   *
+   * Funcion aparte del arbol JSON y de `realtime`: se envian a un usuario (o a
+   * todo el proyecto con `'*'`), se guardan, y llegan al instante a quien
+   * tenga la app abierta.
+   *
+   * ```ts
+   * const parar = db.notifications.watch(({ notification }) =>
+   *   mostrar(notification.title)
+   * );
+   * await db.notifications.send({ to: usuarioId, title: 'Te toca' });
+   * ```
+   */
+  get notifications(): RobleNotifications {
+    return (this.#notifications ??= new RobleNotifications(
+      (method, path, opts) =>
+        this._makeRequest('notifications', method, path, opts ?? {}),
+      () => this.notificationsConnection
+    ));
+  }
+
+  #notifications?: RobleNotifications;
+
+  /**
+   * El socket de notificaciones. Aparte del de `realtime`: son dos namespaces
+   * distintos, y una app puede querer uno sin el otro.
+   */
+  get notificationsConnection(): RobleNotificationsSocket {
+    return (this.#notificationsSocket ??= new RobleNotificationsSocket({
+      origin: this.#origin,
+      dbName: this.contractId,
+      token: () => this.#accessToken,
+      ioFactory: this.#socketFactory,
+    }));
+  }
+
+  #notificationsSocket?: RobleNotificationsSocket;
+
+  /**
    * Devuelve el registro con ese `_id`, o `null` si no existe.
    *
    * ```ts
@@ -1448,6 +1509,17 @@ export class RobleApiClient {
     return rows.length ? rows[0]! : null;
   }
 }
+
+export {
+  RobleNotifications,
+  RobleNotificationsSocket,
+  type RobleNotification,
+  type RobleNotificationEvent,
+  type RobleNotificationEventType,
+  type RobleNotificationsStatus,
+  type RobleSendNotification,
+  type RobleListNotifications,
+};
 
 export {
   RobleRealtimeSocket,

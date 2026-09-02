@@ -381,6 +381,82 @@ Filtrar aquí ahorra el viaje de todo lo que no te interesa.
 
 ---
 
+## Notificaciones
+
+Avisos que se guardan y llegan al momento a quien tenga la app abierta. Es otra
+cosa que el árbol JSON: no hay colección que crear, no hay ruta que elegir, y el
+destinatario es un usuario del proyecto.
+
+```js
+// Escuchar. Devuelve la función que cancela.
+const parar = db.notifications.watch(({ type, notification }) => {
+  if (type === 'created') mostrarAviso(notification.title);
+});
+
+// Enviar a alguien.
+await db.notifications.send({
+  to: otroUsuarioId,
+  title: 'Te toca',
+  body: 'Ana movió ficha',
+  topic: 'partida',
+  data: { partidaId: '42' },
+});
+```
+
+El `data` es tuyo: lo que la pantalla necesite para abrir lo correcto cuando
+alguien toque el aviso.
+
+### A todo el proyecto
+
+```js
+await db.notifications.send({ to: '*', title: 'Mañana no hay clase' });
+```
+
+Llega a todos. Cada persona la marca leída por su cuenta: que tú la leas no la
+marca para los demás. Una de proyecto no se puede borrar desde la app —la
+notificación es una sola y es de todos—, se marca leída y ya.
+
+### Lo que ya estaba ahí
+
+El socket **no** trae lo anterior, solo lo que llegue a partir de ahora. Para
+pintar la lista al abrir:
+
+```js
+const lista = await db.notifications.list();          // las 50 últimas
+const sinLeer = await db.notifications.list({ unread: true });
+const cuantas = await db.notifications.unreadCount(); // el número del globito
+```
+
+`list()` acepta `topic`, `limit` (1-100) y `before` (fecha ISO) para ir hacia
+atrás.
+
+### Marcarlas
+
+```js
+await db.notifications.markRead(notification.id);
+await db.notifications.markAllRead();
+await db.notifications.remove(notification.id); // solo las dirigidas a ti
+```
+
+Marcar una vuelve por el socket como un evento `read`, y solo a **tus**
+dispositivos: el teléfono se entera de lo que marcaste en el navegador.
+
+### El globito, sin pedirlo
+
+Al conectar, el servidor ya manda cuántas hay sin leer:
+
+```js
+db.notifications.connection.onUnreadCount = (n) => setBadge(n);
+```
+
+### Ojo
+
+Cualquiera con sesión en el proyecto puede enviar a cualquiera, igual que
+cualquiera puede escribir en cualquier rama del árbol JSON. Si el aviso lo tiene
+que mandar solo el profesor, esa comprobación va en tu código.
+
+---
+
 ## Cuando algo falla
 
 Todo lanza alguna subclase de `RobleApiException`:
@@ -494,6 +570,23 @@ Todo devuelve una promesa salvo `isLoggedIn`, `watchTable`, `watchRecord` y
 Un cambio (`RobleRealtimeEvent`) trae `operation` (`INSERT`, `UPDATE`,
 `DELETE`), `table`, `newValue` (`null` al borrar), `oldValue`, `primaryKey`,
 `path` y `pathString` (solo en el árbol JSON), y `commitTimestamp`.
+
+### Notificaciones
+
+| Método | Devuelve |
+|---|---|
+| `notifications.send()` | las notificaciones creadas, una por destinatario |
+| `notifications.list()` | `RobleNotification[]`, de la más reciente a la más antigua |
+| `notifications.unreadCount()` | `number` |
+| `notifications.markRead()` | la notificación ya marcada |
+| `notifications.markAllRead()` | `number` — cuántas cambiaron |
+| `notifications.remove()` | nada |
+| `notifications.watch()` | la función que **cancela** la escucha |
+| `notifications.connection.status` | `'disconnected'`, `'connecting'`, `'connected'` o `'error'` |
+
+Una `RobleNotification` trae `id`, `title`, `body`, `topic`, `data`,
+`recipientId` (`'*'` si es de proyecto), `senderId`, `readAt`, `createdAt` y
+`expiresAt`.
 
 ---
 

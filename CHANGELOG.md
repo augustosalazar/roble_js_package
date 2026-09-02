@@ -1,5 +1,36 @@
 # Changelog
 
+## 3.9.0
+
+### Añadido
+
+- **`db.notifications`: avisos que se guardan y llegan al momento.** Función
+  aparte del árbol JSON: no hay colección que crear ni ruta que elegir, el
+  destinatario es un usuario del proyecto y va por su propio socket.
+
+  ```js
+  const parar = db.notifications.watch(({ type, notification }) => {
+    if (type === 'created') mostrarAviso(notification.title);
+  });
+
+  await db.notifications.send({ to: otroUsuarioId, title: 'Te toca' });
+  ```
+
+  `send({ to: '*' })` va a todo el proyecto, y cada persona la marca leída por
+  su cuenta: leerla no la marca para los demás.
+
+  `list()`, `unreadCount()`, `markRead()`, `markAllRead()` y `remove()` para lo
+  que ya estaba ahí —el socket solo trae lo que llegue a partir de ahora—, y
+  `notifications.connection.onUnreadCount` para el globito, que el servidor
+  manda al conectar sin que haya que pedirlo.
+
+### Corregido
+
+- Salir de la sesión cierra el socket de notificaciones. Quedaba abierto y
+  autenticado como quien acababa de salir, así que la siguiente persona en usar
+  la app recibía lo que llegara para la anterior.
+
+
 ## 3.8.0
 
 ### Añadido
