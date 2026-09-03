@@ -38,13 +38,36 @@ export type RobleNotificationsStatus =
   | 'connected'
   | 'error';
 
+/** Quien puede entrar a un canal. */
+export type RobleSubscribeAccess = 'open' | 'roles' | 'managed';
+
+/** Un canal del proyecto. */
+export interface RobleChannel {
+  dbName: string;
+  name: string;
+  /** Como se llama para las personas. `null` si nadie se lo puso. */
+  title: string | null;
+  subscribeAccess: RobleSubscribeAccess;
+  /** Quien puede enviar aqui. `null` hereda del proyecto. */
+  sendAccess: string | null;
+  allowedRoleIds: string[];
+  /** `null` si el canal existe solo porque alguien lo usa. */
+  createdAt: string | null;
+  /** Cuantas personas hay dentro. Solo en la vista de la consola. */
+  members?: number;
+}
+
 /** Lo que hace falta para enviar. */
 export interface RobleSendNotification {
   /**
    * Destinatarios. Un id, una lista de ids, o `'*'` para todo el proyecto.
    * El comodin no se mezcla con ids concretos: el servidor lo rechaza.
+   *
+   * Alternativa a `channel`: exactamente uno de los dos.
    */
-  to: string | string[];
+  to?: string | string[];
+  /** Canal al que enviar. Lo reciben quienes esten suscritos. */
+  channel?: string;
   title: string;
   body?: string;
   topic?: string;
@@ -109,6 +132,19 @@ export interface RobleListNotifications {
   limit?: number;
   /** Devuelve las anteriores a esta fecha ISO, para paginar hacia atras. */
   before?: string;
+}
+
+/**
+ * El destino, sea una persona, todo el proyecto o un canal.
+ *
+ * En un solo sitio porque `send` y `schedule` lo comparten, y porque el
+ * servidor rechaza mandar los dos a la vez: quien estuviera en las dos listas
+ * la recibiria dos veces.
+ */
+function destino(params: { to?: string | string[]; channel?: string }) {
+  if (params.channel) return { channel: params.channel };
+  const to = params.to ?? [];
+  return { recipients: Array.isArray(to) ? to : [to] };
 }
 
 type Request = (
@@ -313,10 +349,9 @@ export class RobleNotifications {
 
   /** Envia una notificacion. Devuelve una por destinatario. */
   async send(params: RobleSendNotification): Promise<RobleNotification[]> {
-    const recipients = Array.isArray(params.to) ? params.to : [params.to];
     return this.request('POST', '', {
       body: {
-        recipients,
+        ...destino(params),
         title: params.title,
         body: params.body,
         topic: params.topic,
@@ -370,6 +405,35 @@ export class RobleNotifications {
   }
 
   /**
+   * Entra a un canal.
+   *
+   * A partir de ahi recibes lo que se mande ahi, pero **no lo anterior**: te
+   * enteras de lo que pasa desde que entras.
+   *
+   * Un canal `managed` —una matricula, por ejemplo— no admite que te apuntes
+   * tu: a esos mete el servidor.
+   */
+  async subscribe(channel: string): Promise<void> {
+    await this.request(
+      'POST',
+      `channels/${encodeURIComponent(channel)}/subscribe`
+    );
+  }
+
+  /** Sale de un canal. Salirse siempre se puede, tambien de uno `managed`. */
+  async unsubscribe(channel: string): Promise<void> {
+    await this.request(
+      'DELETE',
+      `channels/${encodeURIComponent(channel)}/subscribe`
+    );
+  }
+
+  /** Los canales en los que estas. */
+  async channels(): Promise<RobleChannel[]> {
+    return this.request('GET', 'channels');
+  }
+
+  /**
    * Programa un envio para mas tarde.
    *
    * Lo manda el servidor cuando llegue la hora, aunque nadie tenga la app
@@ -390,10 +454,9 @@ export class RobleNotifications {
   async schedule(
     params: RobleScheduleNotification
   ): Promise<RobleScheduledNotification> {
-    const recipients = Array.isArray(params.to) ? params.to : [params.to];
     return this.request('POST', 'schedule', {
       body: {
-        recipients,
+        ...destino(params),
         title: params.title,
         body: params.body,
         topic: params.topic,

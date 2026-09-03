@@ -289,6 +289,44 @@ describe('RobleNotifications', () => {
     expect(llamadas[0]!.endpoint).toBe('a%2Fb/read');
   });
 
+  it('enviar a un canal manda `channel`, no `recipients`', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde([notificacion({ recipientId: 'channel:curso-101' })]);
+
+    await notifications.send({ channel: 'curso-101', title: 'Examen' });
+
+    expect(llamadas[0]!.opts.body.channel).toBe('curso-101');
+    expect(llamadas[0]!.opts.body.recipients).toBeUndefined();
+  });
+
+  it('entrar y salir de un canal escapan el nombre', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde({ success: true });
+
+    await notifications.subscribe('curso 101');
+    expect(llamadas[0]!.method).toBe('POST');
+    expect(llamadas[0]!.endpoint).toBe('channels/curso%20101/subscribe');
+
+    await notifications.unsubscribe('curso 101');
+    expect(llamadas[1]!.method).toBe('DELETE');
+    expect(llamadas[1]!.endpoint).toBe('channels/curso%20101/subscribe');
+  });
+
+  it('programar a un canal usa el mismo destino que enviar', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde({ id: 'p-1' });
+
+    await notifications.schedule({
+      channel: 'curso-101',
+      title: 'Examen',
+      at: '2026-09-03T12:00:00.000Z',
+    });
+
+    expect(llamadas[0]!.endpoint).toBe('schedule');
+    expect(llamadas[0]!.opts.body.channel).toBe('curso-101');
+    expect(llamadas[0]!.opts.body.recipients).toBeUndefined();
+  });
+
   it('programa con la fecha en ISO, venga Date o cadena', async () => {
     const { notifications, llamadas, responde } = api();
     responde({ id: 'p-1', status: 'pending' });

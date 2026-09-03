@@ -21,6 +21,8 @@ import {
   type RobleRepeat,
   type RobleScheduledNotification,
   type RobleScheduleNotification,
+  type RobleChannel,
+  type RobleSubscribeAccess,
 } from './notifications';
 import axios, {
   type AxiosInstance,
@@ -1529,6 +1531,8 @@ export {
   type RobleRepeat,
   type RobleScheduledNotification,
   type RobleScheduleNotification,
+  type RobleChannel,
+  type RobleSubscribeAccess,
 };
 
 export {

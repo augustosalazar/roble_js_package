@@ -24,6 +24,20 @@
   `notifications.connection.onUnreadCount` para el globito, que el servidor
   manda al conectar sin que haya que pedirlo.
 
+- **Canales: avisar a un grupo.** Cuando el aviso no es para una persona ni para
+  todo el proyecto —los de un curso, los que siguen un tema—, se envía una vez y
+  lo reciben quienes estén dentro.
+
+  ```js
+  await db.notifications.subscribe('curso-101');
+  await db.notifications.send({ channel: 'curso-101', title: 'Examen el viernes' });
+  ```
+
+  Un canal existe con solo usarlo. Desde la consola se elige quién puede entrar:
+  cualquiera, ciertos roles, o solo el servidor —para una matrícula, que no la
+  decide el estudiante—. Al entrar no recibes lo anterior, y salirte siempre
+  puedes.
+
 - **`schedule(...)`: enviar más tarde, o todos los días.** Lo manda el servidor
   cuando llegue la hora, aunque nadie tenga la app abierta.
 
