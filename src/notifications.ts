@@ -67,6 +67,40 @@ export interface RobleDevice {
   lastSeenAt: string;
 }
 
+/** Cada cuanto se repite un envio programado. */
+export type RobleRepeat = 'none' | 'daily' | 'weekly';
+
+/** Un envio programado. */
+export interface RobleScheduledNotification {
+  id: string;
+  dbName: string;
+  /** Cuando toca el proximo envio. */
+  sendAt: string;
+  repeat: RobleRepeat;
+  recipients: string[];
+  title: string;
+  body: string | null;
+  topic: string | null;
+  data: Record<string, any>;
+  status: 'pending' | 'sent' | 'cancelled' | 'failed';
+  /** Cuantas veces se ha enviado ya. Interesa en las repetidas. */
+  runs: number;
+  lastRunAt: string | null;
+  /** Por que fallo, si fallo. Una repetida que falla se para. */
+  lastError: string | null;
+  senderId: string | null;
+  senderKind: 'user' | 'console' | 'service';
+  createdAt: string;
+}
+
+/** Lo que hace falta para programar. */
+export interface RobleScheduleNotification extends RobleSendNotification {
+  /** Cuando enviarla. Tiene que estar en el futuro. */
+  at: Date | string;
+  /** Si se repite. Por defecto no. */
+  repeat?: RobleRepeat;
+}
+
 /** Filtros del listado. */
 export interface RobleListNotifications {
   unread?: boolean;
@@ -333,6 +367,62 @@ export class RobleNotifications {
    */
   async remove(id: string): Promise<void> {
     await this.request('DELETE', encodeURIComponent(id));
+  }
+
+  /**
+   * Programa un envio para mas tarde.
+   *
+   * Lo manda el servidor cuando llegue la hora, aunque nadie tenga la app
+   * abierta. Con `repeat` se repite a diario o cada semana, que es como se
+   * hace un "buenos dias" sin montar un cron.
+   *
+   * ```ts
+   * await db.notifications.schedule({
+   *   to: usuarioId,
+   *   title: 'Tu cita es en una hora',
+   *   at: new Date(Date.now() + 3600_000),
+   * });
+   * ```
+   *
+   * Quien puede enviar tambien decide quien puede programar: se comprueba al
+   * programar y otra vez al enviar, porque para entonces puede haber cambiado.
+   */
+  async schedule(
+    params: RobleScheduleNotification
+  ): Promise<RobleScheduledNotification> {
+    const recipients = Array.isArray(params.to) ? params.to : [params.to];
+    return this.request('POST', 'schedule', {
+      body: {
+        recipients,
+        title: params.title,
+        body: params.body,
+        topic: params.topic,
+        data: params.data,
+        expiresAt: params.expiresAt,
+        sendAt: params.at instanceof Date ? params.at.toISOString() : params.at,
+        repeat: params.repeat,
+      },
+    });
+  }
+
+  /**
+   * Los envios que tienes programados.
+   *
+   * Solo los tuyos: lo que otra persona tenga preparado no se ve desde aqui.
+   * Por defecto los pendientes; con `all` tambien los ya enviados, cancelados
+   * y fallidos.
+   */
+  async scheduled(
+    opts: { all?: boolean } = {}
+  ): Promise<RobleScheduledNotification[]> {
+    return this.request('GET', 'schedule', {
+      query: { all: opts.all ? 'true' : undefined },
+    });
+  }
+
+  /** Cancela uno pendiente. No lo borra: queda como cancelado. */
+  async cancelScheduled(id: string): Promise<void> {
+    await this.request('DELETE', `schedule/${encodeURIComponent(id)}`);
   }
 
   /**

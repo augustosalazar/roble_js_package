@@ -18,6 +18,9 @@ import {
   type RobleListNotifications,
   type RobleDevice,
   type RobleDevicePlatform,
+  type RobleRepeat,
+  type RobleScheduledNotification,
+  type RobleScheduleNotification,
 } from './notifications';
 import axios, {
   type AxiosInstance,
@@ -1523,6 +1526,9 @@ export {
   type RobleListNotifications,
   type RobleDevice,
   type RobleDevicePlatform,
+  type RobleRepeat,
+  type RobleScheduledNotification,
+  type RobleScheduleNotification,
 };
 
 export {

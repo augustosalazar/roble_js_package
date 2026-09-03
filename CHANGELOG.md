@@ -24,6 +24,21 @@
   `notifications.connection.onUnreadCount` para el globito, que el servidor
   manda al conectar sin que haya que pedirlo.
 
+- **`schedule(...)`: enviar más tarde, o todos los días.** Lo manda el servidor
+  cuando llegue la hora, aunque nadie tenga la app abierta.
+
+  ```js
+  await db.notifications.schedule({
+    to: usuarioId,
+    title: 'Tu cita es en una hora',
+    at: new Date(Date.now() + 3600_000),
+  });
+  ```
+
+  Con `repeat: 'daily'` o `'weekly'` se repite, que es como se hace un «buenos
+  días» sin montar un cron. `scheduled()` lista los tuyos y `cancelScheduled(id)`
+  cancela uno pendiente.
+
 - **`registerDevice(token, platform)`: notificaciones con la app cerrada.** El
   token lo da el SDK de Firebase en tu app; este paquete solo lo guarda para que
   Roble pueda mandar el push.

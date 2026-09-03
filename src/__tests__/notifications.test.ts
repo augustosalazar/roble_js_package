@@ -289,6 +289,58 @@ describe('RobleNotifications', () => {
     expect(llamadas[0]!.endpoint).toBe('a%2Fb/read');
   });
 
+  it('programa con la fecha en ISO, venga Date o cadena', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde({ id: 'p-1', status: 'pending' });
+
+    const cuando = new Date('2026-09-03T12:00:00.000Z');
+    await notifications.schedule({
+      to: 'user-1',
+      title: 'Cita',
+      at: cuando,
+      repeat: 'daily',
+    });
+
+    expect(llamadas[0]!.endpoint).toBe('schedule');
+    expect(llamadas[0]!.opts.body.sendAt).toBe('2026-09-03T12:00:00.000Z');
+    expect(llamadas[0]!.opts.body.repeat).toBe('daily');
+    expect(llamadas[0]!.opts.body.recipients).toEqual(['user-1']);
+  });
+
+  it('una cadena de fecha pasa tal cual', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde({ id: 'p-1' });
+
+    await notifications.schedule({
+      to: '*',
+      title: 'x',
+      at: '2026-09-03T12:00:00.000Z',
+    });
+
+    expect(llamadas[0]!.opts.body.sendAt).toBe('2026-09-03T12:00:00.000Z');
+  });
+
+  it('lista las programadas, con y sin las terminadas', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde([]);
+
+    await notifications.scheduled();
+    expect(llamadas[0]!.opts.query.all).toBeUndefined();
+
+    await notifications.scheduled({ all: true });
+    expect(llamadas[1]!.opts.query.all).toBe('true');
+  });
+
+  it('cancelar escapa el id', async () => {
+    const { notifications, llamadas, responde } = api();
+    responde({ success: true });
+
+    await notifications.cancelScheduled('a/b');
+
+    expect(llamadas[0]!.method).toBe('DELETE');
+    expect(llamadas[0]!.endpoint).toBe('schedule/a%2Fb');
+  });
+
   it('apunta el aparato con su plataforma', async () => {
     const { notifications, llamadas, responde } = api();
     responde({ token: 'tok-1', platform: 'android' });
